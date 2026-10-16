@@ -175,6 +175,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
         # Asked before inserting, so the reply can say whether this scheduled
         # the session or filled in what an earlier attempt could not.
+        # Talking to Discord takes more than the three seconds the token
+        # survives, so claim the interaction first and reply as a follow-up.
+        await interaction.response.defer()
         existed = await store.session(self.db, starts_at) is not None
         session = await store.ensure(self.db, starts_at)
         if host is not None:
@@ -190,7 +193,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             assigned = await self._assign_host(interaction.guild, session)
         event = await self._add_event(interaction.guild, session)
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
             f" {clock.stamp(starts_at)}\n"
             f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
@@ -290,9 +293,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(NOT_HOST, ephemeral=True)
             return
 
+        # Talking to Discord takes more than the three seconds the token
+        # survives, so claim the interaction first and reply as a follow-up.
+        await interaction.response.defer()
         await store.swap_host(self.db, session.id, user.id)
         await self._refresh_event(interaction.guild, session)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
             allowed_mentions=NOTIFY,
@@ -314,6 +320,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(NOT_HOST, ephemeral=True)
             return
 
+        # Talking to Discord takes more than the three seconds the token
+        # survives, so claim the interaction first and reply as a follow-up.
+        await interaction.response.defer()
         declined = session.host_user_id
         await store.record_skip(self.db, session.id, declined)
         # _assign_host reads the skip records, so the one just written is
@@ -322,14 +331,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if host is None:
             await store.clear_host(self.db, session.id)
             await self._refresh_event(interaction.guild, session)
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"<@{declined}> 推掉了這場，但沒有其他人可以接手。"
                 "請管理員用 `/bookclub host` 指派。",
                 allowed_mentions=NOTIFY,
             )
             return
         await self._refresh_event(interaction.guild, session)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"<@{declined}> 推掉這場，改由 <@{host}> 主持。順位保留，下一場仍優先。",
             allowed_mentions=NOTIFY,
         )
@@ -349,9 +358,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(NOT_HOST, ephemeral=True)
             return
 
+        # Talking to Discord takes more than the three seconds the token
+        # survives, so claim the interaction first and reply as a follow-up.
+        await interaction.response.defer()
         await store.set_topic(self.db, session.id, text)
         await self._refresh_event(interaction.guild, session)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。",
             allowed_mentions=SILENT,
         )
@@ -368,9 +380,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
 
+        # Talking to Discord takes more than the three seconds the token
+        # survives, so claim the interaction first and reply as a follow-up.
+        await interaction.response.defer()
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"已取消 {clock.stamp(session.starts_at)}"
             f"{'，活動也取消了' if cancelled else '（沒有活動可取消）'}。"
             "這場不算任何人的輪次。",
