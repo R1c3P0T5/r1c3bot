@@ -81,6 +81,15 @@ async def assign_host(db: aiosqlite.Connection, session_id: int, user_id: int) -
     await db.commit()
 
 
+async def clear_host(db: aiosqlite.Connection, session_id: int) -> None:
+    """Leave the session without a host, and without a turn spent on it."""
+    await db.execute(
+        "UPDATE sessions SET host_user_id = NULL, rotation_user_id = NULL WHERE id = ?",
+        (session_id,),
+    )
+    await db.commit()
+
+
 async def swap_host(db: aiosqlite.Connection, session_id: int, user_id: int) -> None:
     """Hand the session to someone else, leaving the spent turn where it was."""
     await db.execute("UPDATE sessions SET host_user_id = ? WHERE id = ?", (user_id, session_id))
