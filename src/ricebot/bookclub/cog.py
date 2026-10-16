@@ -1,7 +1,7 @@
 """The /bookclub commands."""
 
 import logging
-from datetime import date, time
+from datetime import date, datetime, time
 
 import aiosqlite
 import discord
@@ -160,6 +160,29 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             allowed_mentions=NOTIFY,
         )
 
+    async def _choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """The upcoming sessions, for the `when` option of every command."""
+        sessions = await store.upcoming(self.db, clock.now() - schedule.DURATION)
+        return [
+            app_commands.Choice(
+                name=f"{clock.taipei(s.starts_at):%m/%d %H:%M}　{s.topic or '未設定主題'}"[:100],
+                value=s.starts_at.isoformat(),
+            )
+            for s in sessions
+        ]
+
+    async def _target(self, when: str | None) -> store.Session | None:
+        """The session a command acts on: the chosen one, or else the next."""
+        if when is None:
+            # A session in progress is still the next one, hence the duration.
+            return await store.next_session(self.db, clock.now() - schedule.DURATION)
+        try:
+            return await store.session(self.db, datetime.fromisoformat(when))
+        except ValueError:
+            return None
+
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
         """Push the session's host and topic onto its event."""
         if session.event_id is None:
@@ -201,8 +224,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     @app_commands.command(description="改這場的主持人，輪替順位不動")
     @app_commands.guild_only()
-    async def host(self, interaction: discord.Interaction, user: discord.Member) -> None:
-        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+    @app_commands.describe(when="哪一場，不給就是下一場")
+    @app_commands.autocomplete(when=_choices)
+    async def host(
+        self, interaction: discord.Interaction, user: discord.Member, when: str | None = None
+    ) -> None:
+        session = await self._target(when)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
@@ -220,8 +247,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
     @app_commands.guild_only()
-    async def skip(self, interaction: discord.Interaction) -> None:
-        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+    @app_commands.describe(when="哪一場，不給就是下一場")
+    @app_commands.autocomplete(when=_choices)
+    async def skip(self, interaction: discord.Interaction, when: str | None = None) -> None:
+        session = await self._target(when)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
@@ -254,9 +283,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     @app_commands.command(description="設定這場的主題")
     @app_commands.guild_only()
-    @app_commands.describe(text="寫進活動名稱與公告")
-    async def topic(self, interaction: discord.Interaction, text: str) -> None:
-        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+    @app_commands.describe(text="寫進活動名稱與公告", when="哪一場，不給就是下一場")
+    @app_commands.autocomplete(when=_choices)
+    async def topic(
+        self, interaction: discord.Interaction, text: str, when: str | None = None
+    ) -> None:
+        session = await self._target(when)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
@@ -275,8 +307,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
-    async def cancel(self, interaction: discord.Interaction) -> None:
-        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+    @app_commands.describe(when="哪一場，不給就是下一場")
+    @app_commands.autocomplete(when=_choices)
+    async def cancel(self, interaction: discord.Interaction, when: str | None = None) -> None:
+        session = await self._target(when)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
