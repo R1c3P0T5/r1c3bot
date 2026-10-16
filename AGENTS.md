@@ -111,6 +111,10 @@ It also validates every commit message in history, which means a bad message sta
   Nothing below the API boundary should see a naive datetime.
 - Boot-time identifiers and secrets come from the environment through `config.py`.
   Values the community adjusts live in the `settings` table so a command can change them without a redeploy.
+- The database is the source of truth; a guild event is a projection of it.
+  An event cannot hold whose turn a session counts as, which reminders were sent, or who declined, so it cannot be authoritative for any of them.
+  An event edited in the client is therefore overwritten on the next sync, and one deleted by hand is recreated.
+  This does not contradict leaving state to Discord where Discord holds all of it, such as a reaction list or a channel overwrite.
 - Both domains record a scheduled side effect before performing it and delete the record if it fails, so the next loop retries.
   They keep separate tables; keep the two implementations consistent.
 - Wrap every `tasks.loop` body in `try`/`except` and attach a `@loop.error` handler.
