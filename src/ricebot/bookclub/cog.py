@@ -71,6 +71,13 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     return "\n".join(lines)
 
 
+def _form_link(channel: discord.TextChannel, session: store.Session) -> str:
+    """A link back to the form, so a notification need not repeat it."""
+    if session.announce_message_id is None:
+        return ""
+    return f"\n報名表：{channel.get_partial_message(session.announce_message_id).jump_url}"
+
+
 def _event_name(session: store.Session) -> str:
     # The event name is capped at 100 characters, so a long topic is trimmed.
     return f"{EVENT_NAME}：{session.topic[:80]}" if session.topic else EVENT_NAME
@@ -623,7 +630,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await channel.send(
             f"{clock.stamp(session.starts_at)} 讀書會"
             f"（主題：{session.topic or '未設定'}）。\n"
-            f"{await self._roll_call(channel, session)}",
+            f"{await self._roll_call(channel, session)}"
+            f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
         )
         return True
@@ -638,7 +646,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await channel.send(
             f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始{where}。\n"
             f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}\n"
-            f"{await self._roll_call(channel, session)}",
+            f"{await self._roll_call(channel, session)}"
+            f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
         )
         return True
