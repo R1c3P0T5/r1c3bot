@@ -28,6 +28,7 @@ REUSED = "沿用原本那則"
 NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
 IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
 CREATED = "已建立"
+KEPT = "沿用原本那個"
 NO_ASSIGNEE = "未指派"
 EVENT_NAME = "讀書會"
 # The sign-up list: the reaction is the only record of who is coming.
@@ -168,6 +169,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         try:
             event = await guild.fetch_scheduled_event(session.event_id)
         except discord.NotFound:
+            log.info("event %s is gone; it will be created again", session.event_id)
             await store.set_event(self.db, session.id, None)
             return None
         except discord.HTTPException as error:
@@ -184,9 +186,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
         The caller reports the result, so the reason has to come back with it:
         a bare None would be filled in with whichever cause seemed likeliest.
+        The row is re-read because a sync just before this may have found the
+        event gone and forgotten it.
         """
-        if await self._event(guild, session) is not None:
-            return CREATED
+        session = await store.session(self.db, session.starts_at) or session
+        if session.event_id is not None:
+            return KEPT
         if session.starts_at <= clock.now():
             # Discord refuses an event in the past, and we can tell without
             # spending a request to be told.
@@ -211,6 +216,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             log.warning("no event for %s: %s", session.starts_at, error)
             return f"未建立（Discord 回報 {str(error).splitlines()[0][:80]}）"
         await store.set_event(self.db, session.id, event.id)
+        log.info("event %s created for %s", event.id, session.starts_at)
         return CREATED
 
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
@@ -236,6 +242,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Recorded before the reaction, so failing to add it cannot cost the
         # message and leave the next pass posting a second one.
         await store.set_announce(self.db, session.id, message.id)
+        log.info("form %s posted for %s", message.id, session.starts_at)
         try:
             await message.add_reaction(RSVP)
         except discord.HTTPException as error:
@@ -269,6 +276,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await message.edit(content=content, allowed_mentions=NOTIFY_ROLE)
         except discord.NotFound:
             # Deleted by hand; forgetting it lets a new one be posted.
+            log.info("form %s is gone; it will be posted again", session.announce_message_id)
             await store.set_announce(self.db, session.id, None)
         except discord.HTTPException as error:
             log.warning("announcement %s not updated: %s", session.announce_message_id, error)
@@ -344,10 +352,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.assign_host(self.db, session.id, host.id)
         # Re-read, so the event is named after the topic just written.
         session = await store.session(self.db, starts_at) or session
-        event_status = await self._add_event(interaction.guild, session)
-        # A session put back on carries projections from before it was
-        # cancelled, so they are corrected before one is reported missing.
+        # Synced first: a session put back on carries projections from before
+        # it was cancelled, and a projection deleted meanwhile is forgotten
+        # here, so the two below replace it rather than report it present.
         await self._sync(interaction.guild, session)
+        event_status = await self._add_event(interaction.guild, session)
         announce_status = await self._add_announce(interaction.guild, session)
 
         await interaction.followup.send(
@@ -605,14 +614,15 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         log.error("the bookclub loop stopped", exc_info=error)
 
     async def _reconcile(self, guild: discord.Guild, session: store.Session) -> None:
-        """Restore what the row projects: the event, and the sign-up form."""
-        if session.event_id is None:
-            await self._add_event(guild, session)
-        else:
-            await self._sync_event(guild, session)
-        # The sync is what notices a form deleted by hand: it forgets the id,
-        # and the post below replaces the form in the same pass.
+        """Restore what the row projects: the event, and the sign-up form.
+
+        Sync before add: the fetch is the only thing that notices a projection
+        deleted by hand, and it forgets the id, so what it clears is replaced
+        in this pass rather than the next one.
+        """
+        await self._sync_event(guild, session)
         await self._sync_announce(guild, session)
+        await self._add_event(guild, session)
         await self._add_announce(guild, session)
 
     async def _send(
