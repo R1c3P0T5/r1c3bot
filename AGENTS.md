@@ -182,6 +182,8 @@ These rules apply to names, code comments, and documentation.
 ### Comments
 
 - Explain why, invariants, and non-obvious constraints; do not restate what the code says.
+- Keep a comment to one line, two when the constraint needs it.
+  The reasoning that led there belongs in the commit body, not beside the code.
 - Record the Discord or CTFtime behavior a workaround exists for, so the workaround is not removed as dead weight.
 - Give public functions and classes a docstring whose first line is a summary.
   Omit it when the name and signature already say everything.

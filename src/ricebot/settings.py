@@ -16,9 +16,7 @@ _TEXT = [discord.ChannelType.text]
 _VOICE = [discord.ChannelType.voice]
 _CATEGORY = [discord.ChannelType.category]
 
-# A select occupies a whole action row and a message holds five, so this list
-# is now full. A sixth setting means splitting /config into subcommands, one
-# panel per group, rather than squeezing it in.
+# One select per action row, five rows per message: this list is full.
 _FIELDS: list[tuple[str, Key, list[discord.ChannelType]]] = [
     ("讀書會公告頻道", Key.BOOKCLUB_CHANNEL, _TEXT),
     ("讀書會語音頻道", Key.BOOKCLUB_VOICE_CHANNEL, _VOICE),
@@ -33,12 +31,10 @@ async def _summary(db: aiosqlite.Connection) -> str:
     lines = []
     for label, key, _ in _FIELDS:
         channel_id = await store.get_id(db, key)
-        # <#id> is resolved by the client, so this needs no channel cache and
-        # does not depend on the bot being able to see the channel.
+        # The client resolves <#id>, so this needs no channel cache.
         value = f"<#{channel_id}>" if channel_id is not None else "未設定"
         lines.append(f"**{label}**：{value}")
-    # Discord strips trailing whitespace, so a zero-width space is what holds
-    # the blank line that separates the list from the selects below it.
+    # Discord strips trailing whitespace; the zero-width space keeps the gap.
     return "## 目前設定\n\n" + "\n".join(lines) + "\n\u200b"
 
 
@@ -50,8 +46,7 @@ class _Picker(discord.ui.ChannelSelect):
         key: Key,
         channel_types: list[discord.ChannelType],
     ) -> None:
-        # The placeholder is the label only. It is hidden once the select holds
-        # a choice, so it cannot carry the current value.
+        # Hidden once the select holds a choice, so it carries the label only.
         super().__init__(
             channel_types=channel_types,
             placeholder=label,
@@ -72,9 +67,7 @@ class ConfigView(discord.ui.View):
     """The panel itself, ephemeral and short-lived."""
 
     def __init__(self, db: aiosqlite.Connection) -> None:
-        # No custom_id and no persistence: the panel lives on an ephemeral
-        # interaction token, so a restart or a timeout means running /config
-        # again. Opt-in flows that must survive a restart use reactions.
+        # Not persistent: the panel dies with its ephemeral token, as it should.
         super().__init__(timeout=300)
         for label, key, channel_types in _FIELDS:
             self.add_item(_Picker(db, label, key, channel_types))
