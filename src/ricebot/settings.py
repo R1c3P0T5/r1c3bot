@@ -39,7 +39,7 @@ async def _summary(db: aiosqlite.Connection) -> str:
         lines.append(f"**{label}**：{value}")
     # Discord strips trailing whitespace, so a zero-width space is what holds
     # the blank line that separates the list from the selects below it.
-    return "**目前設定**\n\n" + "\n".join(lines) + "\n\u200b"
+    return "## 目前設定\n\n" + "\n".join(lines) + "\n\u200b"
 
 
 class _Picker(discord.ui.ChannelSelect):
