@@ -65,10 +65,7 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     if session.cancelled_at is not None:
         lines.append("\n**這場取消了**，時間不用留著。下一場排好我再回來喊人。")
     else:
-        lines.append(
-            f"\n想來的按個 {RSVP}，開始前我會回來叫人。"
-            f"\n-# 活動頁的「感興趣」我數不到，要這裡的 {RSVP} 才算。"
-        )
+        lines.append(f"\n想來的按個 {RSVP}，開始前我會回來叫人。")
     return "\n".join(lines)
 
 
