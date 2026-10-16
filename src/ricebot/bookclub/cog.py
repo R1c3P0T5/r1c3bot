@@ -27,7 +27,9 @@ NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
 # Offsets from the last session, the usual fortnight first.
 DAY_OFFSETS = (14, 7, 21, 28, 35, 42)
-TIMES = ("20:00", "19:00", "19:30", "20:30", "21:00", "14:00")
+# Half hours from morning to the usual start. 08:00 to 20:00 inclusive is
+# exactly 25 entries, which is also Discord's limit for an autocomplete reply.
+TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 
 
