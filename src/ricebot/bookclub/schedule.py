@@ -8,6 +8,9 @@ from ricebot.clock import TAIPEI
 
 START = time(20, 0)
 DURATION = timedelta(hours=2)
+# How late a reminder may still be sent, which is how long an outage can last
+# without losing one.
+CATCH_UP = timedelta(days=1)
 
 
 class Reminder(StrEnum):
@@ -52,3 +55,42 @@ def reminders(
 ) -> dict[Reminder, datetime]:
     """When each reminder becomes due; the cog passes offsets read from settings."""
     return {kind: start + offset for kind, offset in offsets.items()}
+
+
+def due(
+    start: datetime,
+    now: datetime,
+    offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS,
+) -> list[Reminder]:
+    """The reminders that have come round and not yet gone stale, in order.
+
+    Each one is superseded by the next, so a tick that arrives after the next
+    is due skips it: an outage must not replay a session's whole history of
+    reminders at once. The announcement is the exception, since it carries the
+    sign-up reaction the later ones count, so it holds until the session
+    starts.
+    """
+    times = reminders(start, offsets)
+    order = sorted(times, key=times.__getitem__)
+    pending = []
+    for position, kind in enumerate(order):
+        if kind is Reminder.ANNOUNCE:
+            expires = start
+        elif position + 1 < len(order):
+            expires = times[order[position + 1]]
+        else:
+            expires = times[kind] + CATCH_UP
+        if times[kind] <= now < expires:
+            pending.append(kind)
+    return pending
+
+
+def pending_from(
+    now: datetime, offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS
+) -> datetime:
+    """The earliest start whose reminders may still be unsent.
+
+    A session is done once its last reminder is due, so CATCH_UP is how long
+    a restart can still make up for what the downtime missed.
+    """
+    return now - max(offsets.values()) - CATCH_UP

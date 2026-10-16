@@ -116,9 +116,23 @@ async def cancel(db: aiosqlite.Connection, session_id: int, at: datetime) -> Non
     await db.commit()
 
 
+async def reopen(db: aiosqlite.Connection, session_id: int) -> None:
+    """Put a cancelled session back on, which spends its turn again."""
+    await db.execute("UPDATE sessions SET cancelled_at = NULL WHERE id = ?", (session_id,))
+    await db.commit()
+
+
 async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int | None) -> None:
     """Record the event, or forget it with None so a later command recreates it."""
     await db.execute("UPDATE sessions SET event_id = ? WHERE id = ?", (event_id, session_id))
+    await db.commit()
+
+
+async def set_announce(db: aiosqlite.Connection, session_id: int, message_id: int) -> None:
+    """Remember the announcement, whose reactions are the sign-up list."""
+    await db.execute(
+        "UPDATE sessions SET announce_message_id = ? WHERE id = ?", (message_id, session_id)
+    )
     await db.commit()
 
 

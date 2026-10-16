@@ -44,7 +44,7 @@ class RiceBot(commands.Bot):
         self.db = await connect(self.config.database_path)
         await self.add_cog(AuditCog(self.db))
         await self.add_cog(SettingsCog(self.db))
-        await self.add_cog(BookclubCog(self.db))
+        await self.add_cog(BookclubCog(self, self.db, self.config.guild_id))
         # Cog commands are global; without the copy, sync uploads an empty list.
         self.tree.copy_global_to(guild=self.guild)
         await self.tree.sync(guild=self.guild)
