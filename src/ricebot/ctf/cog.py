@@ -19,6 +19,12 @@ log = logging.getLogger(__name__)
 SILENT = discord.AllowedMentions.none()
 # The sign-up list: pressing it is what opens the channel.
 RSVP = "🚩"
+# CTFtime's restrictions. Open is every contest that gets past the filter, so
+# printing it is noise; Casual says how serious it is rather than who may
+# enter, and the rest decide whether a reader can enter at all.
+OPEN = "Open"
+CASUAL = "Casual"
+LIMITED = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
 
 
 def _length(span: timedelta) -> str:
@@ -31,11 +37,17 @@ def _length(span: timedelta) -> str:
 def _summary(event: store.Event) -> str:
     """The contest, as both the announcement and its own channel introduce it."""
     where = f"實體（{event.location}）" if event.onsite else "線上"
-    kind = " ".join(part for part in (where, event.format, event.restrictions) if part)
+    casual = "休閒" if event.restrictions == CASUAL else ""
+    kind = " ".join(part for part in (where, event.format, casual) if part)
     lines = [
         f"## {event.title}",
         f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}",
     ]
+    if event.restrictions not in {OPEN, CASUAL, ""}:
+        # Its own line, because being unable to enter outranks everything else
+        # on the message.
+        limit = LIMITED.get(event.restrictions, event.restrictions)
+        lines.append(f"**{limit}（{event.restrictions}）**")
     if event.organizers:
         lines.append(f"主辦：{event.organizers}")
     # Angle brackets so two links do not become two embeds.
