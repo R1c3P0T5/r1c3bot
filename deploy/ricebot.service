@@ -1,0 +1,36 @@
+# systemd user unit. Install with:
+#
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/ricebot.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ricebot
+#   loginctl enable-linger "$USER"
+#
+# %h expands to the user's home directory, so this file needs no editing when
+# the clone lives at ~/ricebot.
+
+[Unit]
+Description=ricebot Discord bot for the r1c3p0t5 community
+# network-online.target is a system target and is not available to the user
+# manager, so Restart handles a start that happens before the network is up.
+
+[Service]
+Type=simple
+WorkingDirectory=%h/ricebot
+
+# systemd parses this file itself: plain KEY=value lines only. Shell syntax
+# such as `export` or `$OTHER` does not work here.
+EnvironmentFile=%h/ricebot/.env
+
+# The venv binary, not `uv run`: resolving dependencies on every start needs
+# the network and can fail. uv is a deploy-time tool only.
+ExecStart=%h/ricebot/.venv/bin/ricebot
+
+Restart=always
+RestartSec=5s
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target
