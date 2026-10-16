@@ -1,4 +1,4 @@
-"""Session and reminder times for the biweekly book club."""
+"""When a session starts, and when its reminders come due."""
 
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time, timedelta
@@ -8,7 +8,6 @@ from ricebot.clock import TAIPEI
 
 START = time(20, 0)
 DURATION = timedelta(hours=2)
-PERIOD = timedelta(days=14)
 
 
 class Reminder(StrEnum):
@@ -34,19 +33,9 @@ DEFAULT_OFFSETS: Mapping[Reminder, timedelta] = {
 }
 
 
-def start_of(anchor: date, index: int) -> datetime:
-    """The UTC start of the session `index` periods after the anchor."""
-    local = datetime.combine(anchor + index * PERIOD, START, tzinfo=TAIPEI)
-    return local.astimezone(UTC)
-
-
-def current_or_next(anchor: date, moment: datetime) -> tuple[int, datetime]:
-    """The index and UTC start of the session in progress, or else the next one."""
-    index = max(0, (moment - start_of(anchor, 0)) // PERIOD)
-    # Integer division is off by one around a boundary; walking is not.
-    while start_of(anchor, index) + DURATION <= moment:
-        index += 1
-    return index, start_of(anchor, index)
+def starts_at(day: date, at: time = START) -> datetime:
+    """The UTC instant a session beginning at that local time starts."""
+    return datetime.combine(day, at, tzinfo=TAIPEI).astimezone(UTC)
 
 
 def reminders(
