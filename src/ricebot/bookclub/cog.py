@@ -21,8 +21,7 @@ SILENT = discord.AllowedMentions.none()
 NOTIFY_ROLE = discord.AllowedMentions(roles=True, users=True)
 # A change of host is worth a notification; a topic or a cancellation is not.
 NOTIFY = discord.AllowedMentions(users=True)
-NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
-NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
+NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
 NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
 POSTED = "已發布"
 REUSED = "沿用原本那則"
@@ -33,8 +32,8 @@ NO_ASSIGNEE = "未指派"
 EVENT_NAME = "讀書會"
 # The sign-up list: the reaction is the only record of who is coming.
 RSVP = "🚩"
-NOT_HOST = "只有本場主持人或管理員可以這麼做。"
-NO_HOST = "這場還沒有指派主持人。"
+NOT_HOST = "這個只有本場主持人或管理員動得了。"
+NO_HOST = "這場還沒有主持人。"
 # Discord has no date picker, so the list stands in for one: 25 consecutive
 # days, which is also the most it will accept in one autocomplete reply.
 DAY_SPAN = 25
@@ -59,14 +58,17 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     """The sign-up form, which is where a session's information lives."""
     lines = [] if role_id is None else [f"<@&{role_id}>"]
     lines += [
-        f"## 讀書會 {clock.stamp(session.starts_at)}",
+        f"## 📚 讀書會{f' · {session.topic}' if session.topic else ''}",
+        f"{clock.stamp(session.starts_at)}　{clock.stamp(session.starts_at, 'R')}",
         f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}",
-        f"主題：{session.topic or '未設定'}",
     ]
     if session.cancelled_at is not None:
-        lines.append("**這場已取消。**")
+        lines.append("\n**這場取消了**，時間不用留著。下一場排好我再回來喊人。")
     else:
-        lines.append(f"按 {RSVP} 報名。活動頁面的「感興趣」不算，提醒與點名都看這裡的 {RSVP}。")
+        lines.append(
+            f"\n想來的按個 {RSVP}，開始前我會回來叫人。"
+            f"\n-# 活動頁的「感興趣」我數不到，要這裡的 {RSVP} 才算。"
+        )
     return "\n".join(lines)
 
 
@@ -338,7 +340,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         elif found is not None:
             lead = "這場已經排過，補上缺的部分"
         else:
-            lead = "已排定"
+            lead = "排好了"
         session = await store.ensure(self.db, starts_at)
         await store.set_topic(self.db, session.id, topic)
         # Volunteering spends the turn just as being assigned does.
@@ -470,8 +472,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await self._update(
             interaction,
             session,
-            f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
-            "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
+            f"{clock.stamp(session.starts_at)} 這場換 {user.mention} 主持。\n"
+            "-# 輪替順位不動，這場仍算原本被指派那位的輪次。",
         )
 
     @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
@@ -493,11 +495,15 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host = await self._assign_host(interaction.guild, session)
         if host is None:
             await store.clear_host(self.db, session.id)
-            note = "但沒有其他人可以接手。請管理員用 `/bookclub host` 指派。"
+            note = "但現在沒有人能接手，要請管理員用 `/bookclub host` 指派。"
         else:
-            note = f"改由 <@{host}> 主持。順位保留，下一場仍優先。"
+            note = f"由 <@{host}> 接手。"
         await self._sync(interaction.guild, session)
-        await self._update(interaction, session, f"<@{declined}> 推掉這場，{note}")
+        await self._update(
+            interaction,
+            session,
+            f"<@{declined}> 這場先過，{note}\n-# 順位留著，下一場 <@{declined}> 還是優先。",
+        )
 
     @app_commands.command(description="設定這場的主題")
     @app_commands.guild_only()
@@ -513,7 +519,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_topic(self.db, session.id, text)
         await self._sync(interaction.guild, session)
         await self._update(
-            interaction, session, f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。"
+            interaction,
+            session,
+            f"{clock.stamp(session.starts_at)} 這場的主題定了：**{text}**",
         )
 
     @app_commands.command(description="取消下一場，連活動一起")
@@ -533,9 +541,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await self._update(
             interaction,
             session,
-            f"已取消 {clock.stamp(session.starts_at)}"
-            f"{'，活動也取消了' if cancelled else '（這場本來就沒有建立活動）'}。"
-            "這場不算任何人的輪次。",
+            f"{clock.stamp(session.starts_at)} 這場取消了"
+            f"{'，活動一起撤掉' if cancelled else '（本來就沒有活動）'}。\n"
+            "-# 沒有人的輪次被用掉，下一場照原本的順位走。",
         )
 
     @app_commands.command(description="過去的場次與主題")
@@ -654,8 +662,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if channel is None:
             return False
         await channel.send(
-            f"{clock.stamp(session.starts_at)} 讀書會"
-            f"（主題：{session.topic or '未設定'}）。\n"
+            f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始，"
+            f"主題是 **{session.topic or '還沒定'}**。\n"
             f"{await self._roll_call(channel, session)}"
             f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
@@ -670,8 +678,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         voice_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
         where = "" if voice_id is None else f"，在 <#{voice_id}>"
         await channel.send(
-            f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始{where}。\n"
-            f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}\n"
+            f"快開始了，{clock.stamp(session.starts_at, 'R')}{where}。\n"
+            f"今天由 {_mention(session.host_user_id, NO_ASSIGNEE)} 帶，"
             f"{await self._roll_call(channel, session)}"
             f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
@@ -685,10 +693,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return False
         candidates = await self._candidates(guild)
         up_next = None if candidates is None else rotation.next_host(candidates, set())
+        thanks = f"辛苦了 {_mention(session.host_user_id, '主持人')} 🙌"
         await channel.send(
-            f"{clock.stamp(session.starts_at)} 的讀書會結束了。\n"
-            f"下一位輪到 {_mention(up_next, NO_ASSIGNEE)}，"
-            "用 `/bookclub new` 排下一場。",
+            f"今天的讀書會結束了，{thanks}\n"
+            f"下一棒輪到 {_mention(up_next, NO_ASSIGNEE)}，"
+            "想好主題就用 `/bookclub new` 把時間訂下來。",
             allowed_mentions=NOTIFY,
         )
         return True
@@ -696,5 +705,5 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _roll_call(self, channel: discord.TextChannel, session: store.Session) -> str:
         attendees = await self._attendees(channel, session)
         if not attendees:
-            return f"還沒有人按 {RSVP} 報名。"
-        return "報名：" + " ".join(f"<@{user_id}>" for user_id in attendees)
+            return f"目前還沒有人按 {RSVP}，臨時加入也沒問題。"
+        return "報名的有 " + " ".join(f"<@{user_id}>" for user_id in attendees) + "，到時候見。"
