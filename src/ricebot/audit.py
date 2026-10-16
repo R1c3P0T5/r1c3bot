@@ -1,0 +1,45 @@
+"""The audit log: a listener that records every completed command."""
+
+import aiosqlite
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from ricebot import clock
+from ricebot.store import audit as store
+
+# Reads change nothing, so they are not part of the record.
+READS = frozenset({"bookclub next", "bookclub history"})
+
+
+def _options(namespace: app_commands.Namespace) -> str:
+    """The options as given, as mentions where the client renders them."""
+    return " ".join(
+        f"{name}={getattr(value, 'mention', value)}" for name, value in vars(namespace).items()
+    )
+
+
+class AuditCog(commands.Cog):
+    def __init__(self, db: aiosqlite.Connection) -> None:
+        self.db = db
+
+    @commands.Cog.listener()
+    async def on_app_command_completion(
+        self,
+        interaction: discord.Interaction,
+        command: app_commands.Command | app_commands.ContextMenu,
+    ) -> None:
+        # Completion, not invocation: a command that was refused or failed
+        # changed nothing, and permissions.on_error logs those.
+        if command.qualified_name in READS:
+            return
+        await store.record(
+            self.db,
+            store.Entry(
+                at=clock.now(),
+                user_id=interaction.user.id,
+                user_name=interaction.user.display_name,
+                command=command.qualified_name,
+                options=_options(interaction.namespace),
+            ),
+        )
