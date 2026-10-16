@@ -145,13 +145,18 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session.event_id is None:
             return None
         try:
-            return await guild.fetch_scheduled_event(session.event_id)
+            event = await guild.fetch_scheduled_event(session.event_id)
         except discord.NotFound:
             await store.set_event(self.db, session.id, None)
             return None
         except discord.HTTPException as error:
             log.warning("event %s not fetched: %s", session.event_id, error)
             return None
+        if event.status in (discord.EventStatus.canceled, discord.EventStatus.completed):
+            # Discord has no way to reopen an event, so this one is spent.
+            await store.set_event(self.db, session.id, None)
+            return None
+        return event
 
     async def _add_event(self, guild: discord.Guild, session: store.Session) -> str:
         """Put the session on the guild calendar, and say what happened.
@@ -210,9 +215,17 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         await interaction.response.defer()
-        # Asked before inserting, so the reply can say whether this scheduled
-        # the session or filled in what an earlier attempt could not.
-        existed = await store.session(self.db, starts_at) is not None
+        # Asked before inserting, so the reply can say what this changed.
+        # A cancelled session still holds the slot, so it is put back on
+        # rather than reported as already scheduled.
+        found = await store.session(self.db, starts_at)
+        if found is not None and found.cancelled_at is not None:
+            await store.reopen(self.db, found.id)
+            lead = "這場之前取消過，重新排定"
+        elif found is not None:
+            lead = "這場已經排過，補上缺的部分"
+        else:
+            lead = "已排定"
         session = await store.ensure(self.db, starts_at)
         if host is not None:
             # Volunteering spends the turn just as being assigned does.
@@ -228,8 +241,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         event_status = await self._add_event(interaction.guild, session)
 
         await interaction.followup.send(
-            f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
-            f" {clock.stamp(starts_at)}\n"
+            f"{lead} {clock.stamp(starts_at)}\n"
             f"主持人：{_mention(assigned, UNASSIGNED)}\n"
             f"活動：{event_status}",
             allowed_mentions=NOTIFY,
