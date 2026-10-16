@@ -103,6 +103,16 @@ async def test_clearing_the_host_un_spends_the_turn(store) -> None:
     assert await bookclub.last_hosted(store) == {}
 
 
+async def test_clearing_the_event_leaves_the_session(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+    await bookclub.set_event(store, created.id, 999)
+
+    await bookclub.clear_event(store, created.id)
+    found = await bookclub.session(store, at(16))
+
+    assert (found.event_id, found.starts_at) == (None, at(16))
+
+
 async def test_a_swap_leaves_the_spent_turn_alone(store) -> None:
     created = await bookclub.ensure(store, at(16))
     await bookclub.assign_host(store, created.id, A)
