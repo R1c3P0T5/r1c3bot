@@ -20,10 +20,15 @@ r1c3p0t5 社群經營用的 Discord bot。
 - Python 3.13（`uv` 會依 `.python-version` 自動準備）
 - [uv](https://docs.astral.sh/uv/)
 - 一個 Discord application 與 bot token，並在 Developer Portal 開啟 **Server Members Intent**
+- 邀請時的 `permissions` 值為 `17601044432976`
 
 Server Members Intent 屬於 privileged intent，但 100 個伺服器以下的 bot 只要在 Developer Portal 打開開關，不需要審核。
 主持人輪替要讀取身分組的成員，而 Discord 沒有其他 API 能取得這份清單。
 Message Content Intent 不要開，沒有任何功能讀訊息內容。
+
+權限值裡容易漏掉 `Create Events`（`1 << 44`）。
+Discord 把建立活動與管理活動拆成兩個權限，`Manage Events`（`1 << 33`）只能改別人建立的活動。
+缺它的症狀是場次排得起來但活動建不出來，log 留下 `403 Missing Permissions`。
 
 鎖定 3.13 而非 3.14 的原因：`discord.py` 的 `speed` extra 對 `zstandard` 標了 `python_version <= "3.13"`。
 在 3.14 上它會被略過，等於靜默失去 gateway 的 zstd 壓縮。
