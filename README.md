@@ -36,8 +36,12 @@ cp .env.example .env            # 填入 token 與各個 id
 ## 執行
 
 ```sh
-uv run ricebot
+uv run --env-file .env ricebot
 ```
+
+`uv run` 不會自己讀 `.env`，所以本機執行要指明。
+部署時則由 systemd 的 `EnvironmentFile` 提供，不經過 uv。
+缺少或填錯的變數會在啟動時一次全部列出。
 
 ## 開發
 
