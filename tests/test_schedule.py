@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 from ricebot.bookclub import schedule
 from ricebot.bookclub.schedule import Reminder
@@ -45,7 +45,15 @@ def test_before_the_anchor_the_next_session_is_the_anchor() -> None:
 def test_reminders_bracket_the_session() -> None:
     assert schedule.reminders(ANCHOR_START) == {
         Reminder.ANNOUNCE: datetime(2026, 10, 9, 12, 0, tzinfo=UTC),
-        Reminder.REMIND_1D: datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
-        Reminder.REMIND_1H: datetime(2026, 10, 16, 11, 0, tzinfo=UTC),
+        Reminder.REMIND: datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
+        Reminder.STARTING: datetime(2026, 10, 16, 11, 0, tzinfo=UTC),
         Reminder.FOLLOWUP: datetime(2026, 10, 16, 14, 0, tzinfo=UTC),
+    }
+
+
+def test_offsets_override_the_defaults() -> None:
+    retimed = {Reminder.ANNOUNCE: -timedelta(days=3)}
+
+    assert schedule.reminders(ANCHOR_START, retimed) == {
+        Reminder.ANNOUNCE: datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
     }
