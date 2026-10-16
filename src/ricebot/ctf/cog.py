@@ -30,27 +30,21 @@ def _length(span: timedelta) -> str:
 
 def _summary(event: store.Event) -> str:
     """The contest, as both the announcement and its own channel introduce it."""
-    facts = [
-        f"實體 · {event.location}" if event.onsite else "線上",
-        event.format,
-        event.restrictions,
-        f"weight {event.weight:.2f}",
-        _length(event.finishes_at - event.starts_at),
-    ]
+    where = f"實體（{event.location}）" if event.onsite else "線上"
+    kind = " ".join(part for part in (where, event.format, event.restrictions) if part)
     lines = [
         f"## 🚩 {event.title}",
         (
             f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
             f"（{clock.stamp(event.starts_at, 'R')}開始）"
         ),
-        "　".join(fact for fact in facts if fact),
+        "",
+        f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}",
     ]
     if event.organizers:
         lines.append(f"主辦：{event.organizers}")
     # Angle brackets so two links do not become two embeds.
-    lines.append(f"[官網](<{event.url}>)　[CTFtime](<{event.page}>)")
-    if event.participants:
-        lines.append(f"-# CTFtime 上 {event.participants} 隊報名")
+    lines += ["", f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)"]
     return "\n".join(lines)
 
 
