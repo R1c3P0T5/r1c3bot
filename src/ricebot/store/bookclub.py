@@ -95,6 +95,11 @@ async def cancel(db: aiosqlite.Connection, session_id: int, at: datetime) -> Non
     await db.commit()
 
 
+async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int) -> None:
+    await db.execute("UPDATE sessions SET event_id = ? WHERE id = ?", (event_id, session_id))
+    await db.commit()
+
+
 async def set_topic(db: aiosqlite.Connection, session_id: int, topic: str) -> None:
     await db.execute("UPDATE sessions SET topic = ? WHERE id = ?", (topic, session_id))
     await db.commit()
