@@ -41,6 +41,34 @@ async def test_a_cancelled_session_is_not_the_next_one(store) -> None:
     assert found.starts_at == at(30)
 
 
+async def test_history_is_most_recent_first(store) -> None:
+    for day in (2, 16, 9):
+        await bookclub.ensure(store, at(day))
+
+    found = await bookclub.history(store, at(20))
+
+    assert [s.starts_at for s in found] == [at(16), at(9), at(2)]
+
+
+async def test_history_keeps_cancelled_sessions(store) -> None:
+    cancelled = await bookclub.ensure(store, at(2))
+    await bookclub.cancel(store, cancelled.id, at(1))
+
+    found = await bookclub.history(store, at(20))
+
+    # A cancelled session is part of what happened, unlike for the rotation.
+    assert [s.starts_at for s in found] == [at(2)]
+
+
+async def test_history_stops_at_sessions_still_ahead(store) -> None:
+    await bookclub.ensure(store, at(2))
+    await bookclub.ensure(store, at(30))
+
+    found = await bookclub.history(store, at(20))
+
+    assert [s.starts_at for s in found] == [at(2)]
+
+
 async def test_upcoming_is_ordered_by_start(store) -> None:
     for day in (30, 16, 23):
         await bookclub.ensure(store, at(day))
