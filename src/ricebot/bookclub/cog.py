@@ -144,6 +144,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # Volunteering spends the turn just as being assigned does.
             await store.assign_host(self.db, session.id, host.id)
             assigned: int | None = host.id
+        elif session.host_user_id is not None:
+            # The session already existed, so re-running new must not reshuffle
+            # its host: the rotation would pick someone else, having already
+            # counted this session's turn.
+            assigned = session.host_user_id
         else:
             assigned = await self._assign_host(interaction.guild, session)
         event = await self._add_event(interaction.guild, session)
