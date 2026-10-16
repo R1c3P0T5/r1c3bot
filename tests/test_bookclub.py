@@ -17,6 +17,30 @@ async def test_ensure_returns_the_same_row_twice(store) -> None:
     assert second.id == first.id
 
 
+async def test_there_is_no_next_session_in_an_empty_schedule(store) -> None:
+    assert await bookclub.next_session(store, at(16)) is None
+
+
+async def test_the_next_session_is_the_earliest_one_still_ahead(store) -> None:
+    for day in (30, 16, 2):
+        await bookclub.ensure(store, at(day))
+
+    found = await bookclub.next_session(store, at(10))
+
+    # Day 2 is behind not_before, so the answer is 16, not the first row.
+    assert found.starts_at == at(16)
+
+
+async def test_a_cancelled_session_is_not_the_next_one(store) -> None:
+    cancelled = await bookclub.ensure(store, at(16))
+    await bookclub.ensure(store, at(30))
+    await bookclub.cancel(store, cancelled.id, at(15))
+
+    found = await bookclub.next_session(store, at(10))
+
+    assert found.starts_at == at(30)
+
+
 async def test_assigning_a_host_spends_their_turn(store) -> None:
     created = await bookclub.ensure(store, at(16))
 
