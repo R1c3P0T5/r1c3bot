@@ -21,15 +21,14 @@ class Reminder(StrEnum):
     of what was already sent ceasing to match.
     """
 
-    ANNOUNCE = "announce"
     REMIND = "remind"
     STARTING = "starting"
     FOLLOWUP = "followup"
 
 
-# Offset from the session start; the follow-up lands after it ends.
+# Offset from the session start; the follow-up lands after it ends. The
+# sign-up form is not here: it is posted when the session is scheduled.
 DEFAULT_OFFSETS: Mapping[Reminder, timedelta] = {
-    Reminder.ANNOUNCE: -timedelta(days=7),
     Reminder.REMIND: -timedelta(days=1),
     Reminder.STARTING: -timedelta(hours=1),
     Reminder.FOLLOWUP: DURATION,
@@ -64,25 +63,16 @@ def due(
 ) -> list[Reminder]:
     """The reminders that have come round and not yet gone stale, in order.
 
-    Each one is superseded by the next, so a tick that arrives after the next
-    is due skips it: an outage must not replay a session's whole history of
-    reminders at once. The announcement is the exception, since it carries the
-    sign-up reaction the later ones count, so it holds until the session
-    starts.
+    Each one is superseded by the next, so a tick arriving after the next is
+    due skips it: an outage must not replay a session's whole run of reminders
+    at once. The last one holds for the catch-up window instead.
     """
     times = reminders(start, offsets)
+    if not times:
+        return []
     order = sorted(times, key=times.__getitem__)
-    pending = []
-    for position, kind in enumerate(order):
-        if kind is Reminder.ANNOUNCE:
-            expires = start
-        elif position + 1 < len(order):
-            expires = times[order[position + 1]]
-        else:
-            expires = times[kind] + CATCH_UP
-        if times[kind] <= now < expires:
-            pending.append(kind)
-    return pending
+    expiry = [times[kind] for kind in order[1:]] + [times[order[-1]] + CATCH_UP]
+    return [kind for kind, ends in zip(order, expiry, strict=True) if times[kind] <= now < ends]
 
 
 def pending_from(

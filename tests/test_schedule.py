@@ -24,7 +24,6 @@ def test_a_session_in_progress_is_still_current() -> None:
 
 def test_reminders_bracket_the_session() -> None:
     assert schedule.reminders(EIGHT_PM) == {
-        Reminder.ANNOUNCE: datetime(2026, 10, 9, 12, 0, tzinfo=UTC),
         Reminder.REMIND: datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
         Reminder.STARTING: datetime(2026, 10, 16, 11, 0, tzinfo=UTC),
         Reminder.FOLLOWUP: datetime(2026, 10, 16, 14, 0, tzinfo=UTC),
@@ -32,39 +31,30 @@ def test_reminders_bracket_the_session() -> None:
 
 
 def test_offsets_override_the_defaults() -> None:
-    retimed = {Reminder.ANNOUNCE: -timedelta(days=3)}
+    retimed = {Reminder.REMIND: -timedelta(days=3)}
 
     assert schedule.reminders(EIGHT_PM, retimed) == {
-        Reminder.ANNOUNCE: datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
+        Reminder.REMIND: datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
     }
 
 
 def test_nothing_is_due_before_the_first_reminder() -> None:
-    assert schedule.due(EIGHT_PM, datetime(2026, 10, 9, 11, 59, tzinfo=UTC)) == []
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 15, 11, 59, tzinfo=UTC)) == []
 
 
 def test_a_reminder_is_due_the_moment_it_comes_round() -> None:
-    assert schedule.due(EIGHT_PM, datetime(2026, 10, 9, 12, 0, tzinfo=UTC)) == [Reminder.ANNOUNCE]
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 15, 12, 0, tzinfo=UTC)) == [Reminder.REMIND]
 
 
 def test_only_the_follow_up_is_left_once_the_session_is_over() -> None:
-    # An hour after the session ended: the earlier three are long superseded.
+    # An hour after the session ended: the earlier two are long superseded.
     assert schedule.due(EIGHT_PM, datetime(2026, 10, 16, 15, 0, tzinfo=UTC)) == [Reminder.FOLLOWUP]
-
-
-def test_the_announcement_holds_until_the_session_starts() -> None:
-    # It carries the sign-up reaction, so a session scheduled at short notice
-    # still gets one, alongside the reminder whose turn it is.
-    assert schedule.due(EIGHT_PM, datetime(2026, 10, 16, 11, 30, tzinfo=UTC)) == [
-        Reminder.ANNOUNCE,
-        Reminder.STARTING,
-    ]
 
 
 def test_a_superseded_reminder_is_skipped_rather_than_sent_late() -> None:
     # Half an hour before the start: the day-ahead nudge has been overtaken by
     # the roll call, so it is dropped rather than sent on top of it.
-    assert Reminder.REMIND not in schedule.due(EIGHT_PM, datetime(2026, 10, 16, 11, 30, tzinfo=UTC))
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 16, 11, 30, tzinfo=UTC)) == [Reminder.STARTING]
 
 
 def test_nothing_is_due_once_the_catch_up_window_closes() -> None:

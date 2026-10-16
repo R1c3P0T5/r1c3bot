@@ -128,8 +128,8 @@ async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int | N
     await db.commit()
 
 
-async def set_announce(db: aiosqlite.Connection, session_id: int, message_id: int) -> None:
-    """Remember the announcement, whose reactions are the sign-up list."""
+async def set_announce(db: aiosqlite.Connection, session_id: int, message_id: int | None) -> None:
+    """Remember the form, or forget it with None so a later pass posts one."""
     await db.execute(
         "UPDATE sessions SET announce_message_id = ? WHERE id = ?", (message_id, session_id)
     )
