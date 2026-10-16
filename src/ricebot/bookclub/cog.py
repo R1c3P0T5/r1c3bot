@@ -195,7 +195,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
     @app_commands.describe(
-        day="YYYY-MM-DD", at=f"HH:MM，預設 {DEFAULT_AT}", host="不給就照輪替指派"
+        day="YYYY-MM-DD",
+        at=f"HH:MM，預設 {DEFAULT_AT}",
+        host="不給就照輪替指派",
+        topic="之後也可以用 /bookclub topic 設定",
     )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
@@ -205,6 +208,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         day: str,
         at: str = DEFAULT_AT,
         host: discord.Member | None = None,
+        topic: str | None = None,
     ) -> None:
         try:
             starts_at = schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
@@ -229,6 +233,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         else:
             lead = "已排定"
         session = await store.ensure(self.db, starts_at)
+        if topic is not None:
+            await store.set_topic(self.db, session.id, topic)
         if host is not None:
             # Volunteering spends the turn just as being assigned does.
             await store.assign_host(self.db, session.id, host.id)
@@ -240,11 +246,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             assigned = session.host_user_id
         else:
             assigned = await self._assign_host(interaction.guild, session)
+        # Re-read, so the event is named after the topic just written.
+        session = await store.session(self.db, starts_at) or session
         event_status = await self._add_event(interaction.guild, session)
 
         await interaction.followup.send(
             f"{lead} {clock.stamp(starts_at)}\n"
             f"主持人：{_mention(assigned, UNASSIGNED)}\n"
+            f"主題：{session.topic or '未設定'}\n"
             f"活動：{event_status}",
             ephemeral=True,
             allowed_mentions=SILENT,
