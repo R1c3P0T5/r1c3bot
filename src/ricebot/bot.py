@@ -17,6 +17,9 @@ def _intents() -> discord.Intents:
     # Intents.default() enables every non-privileged intent, most of them unread.
     intents = discord.Intents.none()
     intents.guilds = True
+    # Privileged, but a Developer Portal toggle below 100 guilds. The host
+    # rotation needs the role's members, which no unprivileged API exposes.
+    intents.members = True
     intents.reactions = True
     return intents
 
