@@ -1,0 +1,5 @@
+line-length = 100
+
+[lint]
+# ruff-format does not sort imports.
+extend-select = ["I"]
