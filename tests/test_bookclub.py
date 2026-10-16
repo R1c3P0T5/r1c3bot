@@ -118,6 +118,15 @@ async def test_clearing_the_event_leaves_the_session(store) -> None:
     assert (found.event_id, found.starts_at) == (None, at(16))
 
 
+async def test_the_announcement_is_remembered(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+
+    await bookclub.set_announce(store, created.id, 777)
+    found = await bookclub.session(store, at(16))
+
+    assert found.announce_message_id == 777
+
+
 async def test_a_swap_leaves_the_spent_turn_alone(store) -> None:
     created = await bookclub.ensure(store, at(16))
     await bookclub.assign_host(store, created.id, A)
