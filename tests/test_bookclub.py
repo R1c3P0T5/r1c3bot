@@ -92,3 +92,23 @@ async def test_a_skip_is_recorded_once(store) -> None:
     await bookclub.record_skip(store, created.id, A)
 
     assert await bookclub.skipped(store, created.id) == {A}
+
+
+async def test_skips_accumulate_across_a_session(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+
+    await bookclub.record_skip(store, created.id, A)
+    await bookclub.record_skip(store, created.id, B)
+
+    # The whole set, not the latest one: returning only B would put A back
+    # among the candidates, and A has the earliest turn, so the second skip
+    # would hand the session straight back to A.
+    assert await bookclub.skipped(store, created.id) == {A, B}
+
+
+async def test_skips_are_scoped_to_their_session(store) -> None:
+    first = await bookclub.ensure(store, at(16))
+    second = await bookclub.ensure(store, at(30))
+    await bookclub.record_skip(store, first.id, A)
+
+    assert await bookclub.skipped(store, second.id) == set()
