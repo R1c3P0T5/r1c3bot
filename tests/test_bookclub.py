@@ -128,6 +128,16 @@ async def test_a_reopened_session_is_scheduled_again(store) -> None:
     assert (found.id, found.cancelled_at) == (created.id, None)
 
 
+async def test_reopening_sends_the_reminders_again(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+    await bookclub.mark_reminder(store, created.id, Reminder.REMIND, at(15))
+    await bookclub.cancel(store, created.id, at(15))
+
+    await bookclub.reopen(store, created.id)
+
+    assert await bookclub.mark_reminder(store, created.id, Reminder.REMIND, at(16)) is True
+
+
 async def test_the_announcement_is_remembered(store) -> None:
     created = await bookclub.ensure(store, at(16))
 
