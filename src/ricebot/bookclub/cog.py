@@ -25,8 +25,9 @@ NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
 EVENT_NAME = "讀書會"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
-# Offsets from the last session, the usual fortnight first.
-DAY_OFFSETS = (14, 7, 21, 28, 35, 42)
+# Offsets from the last session, in order. The list suggests dates on the same
+# weekday; it does not prefer a cadence.
+DAY_OFFSETS = (7, 14, 21, 28, 35, 42)
 # Half hours from morning to the usual start. 08:00 to 20:00 inclusive is
 # exactly 25 entries, which is also Discord's limit for an autocomplete reply.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
@@ -180,12 +181,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         last = await store.latest(self.db)
         base = clock.taipei(last.starts_at if last else clock.now()).date()
         return [
-            app_commands.Choice(
-                name=f"{day:%m/%d}（{_weekday(day)}）"
-                + ("　上一場 + 2 週" if offset == 14 and last else ""),
-                value=day.isoformat(),
-            )
-            for offset, day in ((n, base + timedelta(days=n)) for n in DAY_OFFSETS)
+            app_commands.Choice(name=f"{day:%m/%d}（{_weekday(day)}）", value=day.isoformat())
+            for day in (base + timedelta(days=n) for n in DAY_OFFSETS)
             if current in day.isoformat()
         ]
 
