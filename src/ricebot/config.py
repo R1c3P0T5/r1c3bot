@@ -15,14 +15,14 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    """Values fixed at boot: the token, the guild, and the channels to act in."""
+    """Values fixed at boot: the token, the guild, and where the database lives.
+
+    Everything the community adjusts lives in the settings table instead, so
+    changing it needs a command rather than a redeploy.
+    """
 
     token: str
     guild_id: int
-    bookclub_channel_id: int
-    ctf_announce_channel_id: int
-    ctf_category_id: int
-    ctf_archive_category_id: int
     database_path: Path
 
     @classmethod
@@ -34,10 +34,6 @@ class Config:
         config = cls(
             token=reader.text("DISCORD_TOKEN"),
             guild_id=reader.identifier("GUILD_ID"),
-            bookclub_channel_id=reader.identifier("BOOKCLUB_CHANNEL_ID"),
-            ctf_announce_channel_id=reader.identifier("CTF_ANNOUNCE_CHANNEL_ID"),
-            ctf_category_id=reader.identifier("CTF_CATEGORY_ID"),
-            ctf_archive_category_id=reader.identifier("CTF_ARCHIVE_CATEGORY_ID"),
             database_path=Path(env.get("DATABASE_PATH", "").strip() or DEFAULT_DATABASE_PATH),
         )
         reader.raise_for_problems()

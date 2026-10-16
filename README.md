@@ -30,7 +30,7 @@ r1c3p0t5 社群經營用的 Discord bot。
 git clone <repo> && cd ricebot
 uv sync
 uv run pre-commit install       # 每個 clone 做一次
-cp .env.example .env            # 填入 token 與各個 id
+cp .env.example .env            # 填入 token 與 GUILD_ID
 ```
 
 ## 執行
@@ -42,6 +42,13 @@ uv run --env-file .env ricebot
 `uv run` 不會自己讀 `.env`，所以本機執行要指明。
 部署時則由 systemd 的 `EnvironmentFile` 提供，不經過 uv。
 缺少或填錯的變數會在啟動時一次全部列出。
+
+## 設定
+
+`.env` 只放 token、`GUILD_ID` 與資料庫路徑，也就是改了必須重啟才會生效的值。
+
+其餘設定在 Discord 裡用 `/config` 調整，寫進資料庫、即時生效、重啟保留。
+指令限定 `Manage Server` 權限，面板上每個項目是一個頻道選單，不需要複製 ID。
 
 ## 開發
 
@@ -67,7 +74,7 @@ bot 不綁 port、不需特權資源，所以不需要 system unit，也因此�
 ```sh
 git clone <repo> ~/ricebot && cd ~/ricebot
 uv sync
-cp .env.example .env                      # 填入 token 與各個 id
+cp .env.example .env                      # 填入 token 與 GUILD_ID
 mkdir -p ~/.config/systemd/user
 cp deploy/ricebot.service ~/.config/systemd/user/
 systemctl --user daemon-reload
