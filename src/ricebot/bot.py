@@ -71,4 +71,12 @@ def run(config: Config) -> None:
     """Connect and block until the client stops."""
     # log_handler=None stops Client.run installing a second root handler.
     discord.utils.setup_logging()
-    RiceBot(config).run(config.token, log_handler=None)
+    try:
+        RiceBot(config).run(config.token, log_handler=None)
+    except discord.PrivilegedIntentsRequired as error:
+        # Otherwise this surfaces as a reconnect loop with no stated cause.
+        raise SystemExit(
+            "ricebot: a privileged intent is not enabled for this application.\n"
+            "Developer Portal -> Bot -> Privileged Gateway Intents -> Server Members Intent\n"
+            f"({error})"
+        ) from None
