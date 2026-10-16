@@ -39,6 +39,17 @@ class RiceBot(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("logged in as %s (id %s)", self.user, self.user and self.user.id)
+        # Logging in says nothing about membership, and being in no guild at all
+        # is a silent success: the client connects and idles forever.
+        guild = self.get_guild(self.config.guild_id)
+        if guild is None:
+            log.error(
+                "not in guild %s. currently in: %s. invite the bot, then restart",
+                self.config.guild_id,
+                ", ".join(f"{g.name} ({g.id})" for g in self.guilds) or "nothing",
+            )
+        else:
+            log.info("serving %s (%s)", guild.name, guild.id)
 
 
 def run(config: Config) -> None:
