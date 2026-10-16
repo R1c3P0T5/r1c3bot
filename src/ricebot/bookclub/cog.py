@@ -23,7 +23,9 @@ NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`�
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
 IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
-UNASSIGNED = "未指派（還沒設定讀書會身分組，請管理員執行 `/bookclub role`）"
+CREATED = "已建立"
+NO_ASSIGNEE = "未指派"
+UNASSIGNED = f"{NO_ASSIGNEE}（還沒設定讀書會身分組，請管理員執行 `/bookclub role`）"
 EVENT_NAME = "讀書會"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
@@ -34,6 +36,7 @@ DAY_SPAN = 25
 # exactly 25 entries, which is also Discord's limit for an autocomplete reply.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
+DEFAULT_AT = schedule.START.strftime("%H:%M")
 
 
 _WEEKDAYS = "一二三四五六日"
@@ -41,6 +44,10 @@ _WEEKDAYS = "一二三四五六日"
 
 def _weekday(day: date) -> str:
     return f"週{_WEEKDAYS[day.weekday()]}"
+
+
+def _mention(user_id: int | None, fallback: str) -> str:
+    return f"<@{user_id}>" if user_id is not None else fallback
 
 
 def _event_name(session: store.Session) -> str:
@@ -135,7 +142,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         a bare None would be filled in with whichever cause seemed likeliest.
         """
         if await self._event(guild, session) is not None:
-            return "已建立"
+            return CREATED
         if session.starts_at <= clock.now():
             # Discord refuses an event in the past, and we can tell without
             # spending a request to be told.
@@ -160,18 +167,20 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             log.warning("no event for %s: %s", session.starts_at, error)
             return f"未建立（Discord 回報 {str(error).splitlines()[0][:80]}）"
         await store.set_event(self.db, session.id, event.id)
-        return "已建立"
+        return CREATED
 
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
-    @app_commands.describe(day="YYYY-MM-DD", at="HH:MM，預設 20:00", host="不給就照輪替指派")
+    @app_commands.describe(
+        day="YYYY-MM-DD", at=f"HH:MM，預設 {DEFAULT_AT}", host="不給就照輪替指派"
+    )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
     async def new(
         self,
         interaction: discord.Interaction,
         day: str,
-        at: str = "20:00",
+        at: str = DEFAULT_AT,
         host: discord.Member | None = None,
     ) -> None:
         try:
@@ -182,11 +191,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
             return
 
+        await interaction.response.defer()
         # Asked before inserting, so the reply can say whether this scheduled
         # the session or filled in what an earlier attempt could not.
-        # Talking to Discord takes more than the three seconds the token
-        # survives, so claim the interaction first and reply as a follow-up.
-        await interaction.response.defer()
         existed = await store.session(self.db, starts_at) is not None
         session = await store.ensure(self.db, starts_at)
         if host is not None:
@@ -205,7 +212,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.followup.send(
             f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
             f" {clock.stamp(starts_at)}\n"
-            f"主持人：{f'<@{assigned}>' if assigned else UNASSIGNED}\n"
+            f"主持人：{_mention(assigned, UNASSIGNED)}\n"
             f"活動：{event_status}",
             allowed_mentions=NOTIFY,
         )
@@ -254,23 +261,41 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except ValueError:
             return None
 
+    async def _resolve(
+        self, interaction: discord.Interaction, when: str | None
+    ) -> store.Session | None:
+        """The session to act on, or None once the refusal has been sent.
+
+        Every command that gets a session here then talks to Discord, which
+        outlives the three seconds the token survives, so each defers and
+        replies as a follow-up.
+        """
+        session = await self._target(when)
+        if session is None:
+            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            return None
+        if not self._may_manage(interaction, session):
+            await interaction.response.send_message(NOT_HOST, ephemeral=True)
+            return None
+        return session
+
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
-        """Push the session's host and topic onto its event."""
-        event = await self._event(guild, session)
+        """Push the session's host and topic onto its event.
+
+        Re-read first: the caller holds a snapshot from before its own write.
+        """
+        updated = await store.session(self.db, session.starts_at)
+        if updated is None:
+            return
+        event = await self._event(guild, updated)
         if event is None:
             return
         try:
             await event.edit(
-                name=_event_name(session), description=_event_description(guild, session)
+                name=_event_name(updated), description=_event_description(guild, updated)
             )
         except discord.HTTPException as error:
-            log.warning("event %s not updated: %s", session.event_id, error)
-
-    async def _refresh_event(self, guild: discord.Guild, session: store.Session) -> None:
-        """Re-read the session, then sync, so the event shows the new values."""
-        updated = await store.session(self.db, session.starts_at)
-        if updated is not None:
-            await self._sync_event(guild, updated)
+            log.warning("event %s not updated: %s", updated.event_id, error)
 
     async def _cancel_event(self, guild: discord.Guild, session: store.Session) -> bool:
         event = await self._event(guild, session)
@@ -296,19 +321,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def host(
         self, interaction: discord.Interaction, user: discord.Member, when: str | None = None
     ) -> None:
-        session = await self._target(when)
+        session = await self._resolve(interaction, when)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-        if not self._may_manage(interaction, session):
-            await interaction.response.send_message(NOT_HOST, ephemeral=True)
-            return
-
-        # Talking to Discord takes more than the three seconds the token
-        # survives, so claim the interaction first and reply as a follow-up.
         await interaction.response.defer()
         await store.swap_host(self.db, session.id, user.id)
-        await self._refresh_event(interaction.guild, session)
+        await self._sync_event(interaction.guild, session)
         await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
@@ -320,19 +338,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.describe(when="哪一場，不給就是下一場")
     @app_commands.autocomplete(when=_choices)
     async def skip(self, interaction: discord.Interaction, when: str | None = None) -> None:
-        session = await self._target(when)
+        session = await self._resolve(interaction, when)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
         if session.host_user_id is None:
             await interaction.response.send_message(NO_HOST, ephemeral=True)
             return
-        if not self._may_manage(interaction, session):
-            await interaction.response.send_message(NOT_HOST, ephemeral=True)
-            return
-
-        # Talking to Discord takes more than the three seconds the token
-        # survives, so claim the interaction first and reply as a follow-up.
         await interaction.response.defer()
         declined = session.host_user_id
         await store.record_skip(self.db, session.id, declined)
@@ -341,18 +352,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host = await self._assign_host(interaction.guild, session)
         if host is None:
             await store.clear_host(self.db, session.id)
-            await self._refresh_event(interaction.guild, session)
-            await interaction.followup.send(
-                f"<@{declined}> 推掉了這場，但沒有其他人可以接手。"
-                "請管理員用 `/bookclub host` 指派。",
-                allowed_mentions=NOTIFY,
-            )
-            return
-        await self._refresh_event(interaction.guild, session)
-        await interaction.followup.send(
-            f"<@{declined}> 推掉這場，改由 <@{host}> 主持。順位保留，下一場仍優先。",
-            allowed_mentions=NOTIFY,
-        )
+            note = "但沒有其他人可以接手。請管理員用 `/bookclub host` 指派。"
+        else:
+            note = f"改由 <@{host}> 主持。順位保留，下一場仍優先。"
+        await self._sync_event(interaction.guild, session)
+        await interaction.followup.send(f"<@{declined}> 推掉這場，{note}", allowed_mentions=NOTIFY)
 
     @app_commands.command(description="設定這場的主題")
     @app_commands.guild_only()
@@ -361,19 +365,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def topic(
         self, interaction: discord.Interaction, text: str, when: str | None = None
     ) -> None:
-        session = await self._target(when)
+        session = await self._resolve(interaction, when)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-        if not self._may_manage(interaction, session):
-            await interaction.response.send_message(NOT_HOST, ephemeral=True)
-            return
-
-        # Talking to Discord takes more than the three seconds the token
-        # survives, so claim the interaction first and reply as a follow-up.
         await interaction.response.defer()
         await store.set_topic(self.db, session.id, text)
-        await self._refresh_event(interaction.guild, session)
+        await self._sync_event(interaction.guild, session)
         await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。",
             allowed_mentions=SILENT,
@@ -386,13 +383,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.describe(when="哪一場，不給就是下一場")
     @app_commands.autocomplete(when=_choices)
     async def cancel(self, interaction: discord.Interaction, when: str | None = None) -> None:
-        session = await self._target(when)
+        session = await self._resolve(interaction, when)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-
-        # Talking to Discord takes more than the three seconds the token
-        # survives, so claim the interaction first and reply as a follow-up.
         await interaction.response.defer()
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
@@ -415,7 +408,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
         lines = []
         for session in sessions:
-            host = f"<@{session.host_user_id}>" if session.host_user_id else "無主持人"
+            host = _mention(session.host_user_id, NO_ASSIGNEE)
             topic = (session.topic or "—")[:40]
             note = "（已取消）" if session.cancelled_at else ""
             lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}`　{host}　{topic}{note}")
@@ -426,11 +419,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.command(description="下一場的時間、主持人與主題")
     @app_commands.guild_only()
     async def next(self, interaction: discord.Interaction) -> None:
-        session = await store.next_session(self.db, self._cutoff())
+        session = await self._target(None)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-        host = f"<@{session.host_user_id}>" if session.host_user_id else "未指派"
+        host = _mention(session.host_user_id, NO_ASSIGNEE)
         await interaction.response.send_message(
             f"{clock.stamp(session.starts_at)}（{clock.stamp(session.starts_at, 'R')}）\n"
             f"主持人：{host}\n"
