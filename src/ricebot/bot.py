@@ -9,6 +9,7 @@ from discord.ext import commands
 from ricebot.audit import AuditCog
 from ricebot.bookclub.cog import BookclubCog
 from ricebot.config import Config
+from ricebot.ctf.cog import CtfCog
 from ricebot.settings import SettingsCog
 from ricebot.store.db import connect
 
@@ -46,6 +47,7 @@ class RiceBot(commands.Bot):
         await self.add_cog(SettingsCog(self.db))
         await self.add_cog(BookclubCog(self, self.db, self.config.guild_id))
         # Cog commands are global; without the copy, sync uploads an empty list.
+        await self.add_cog(CtfCog(self, self.db, self.config.guild_id))
         self.tree.copy_global_to(guild=self.guild)
         await self.tree.sync(guild=self.guild)
 

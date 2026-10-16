@@ -84,3 +84,19 @@ def test_the_soonest_contest_comes_first() -> None:
         25,
         30,
     ]
+
+
+def test_a_title_becomes_a_channel_name() -> None:
+    assert ctftime.slug("HITCON CTF 2026", "ctf") == "hitcon-ctf-2026"
+
+
+def test_punctuation_runs_collapse_into_one_separator() -> None:
+    assert ctftime.slug("Hack.lu CTF 2026 — Quals!", "ctf") == "hack-lu-ctf-2026-quals"
+
+
+def test_a_title_that_leaves_nothing_falls_back() -> None:
+    assert ctftime.slug("!!! ???", "ctf-3364") == "ctf-3364"
+
+
+def test_chinese_survives_a_channel_name() -> None:
+    assert ctftime.slug("臺灣 CTF 2026", "ctf") == "臺灣-ctf-2026"

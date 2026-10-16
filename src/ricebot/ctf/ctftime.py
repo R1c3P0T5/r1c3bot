@@ -1,5 +1,6 @@
 """CTFtime's event list, and which of its contests are worth announcing."""
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,6 +21,12 @@ MIN_WEIGHT = 25.0
 CLOSED = "Prequalified"
 # One CTFtime page. The window has never held anywhere near this many.
 LIMIT = 100
+
+
+# Long enough for the write-ups to be written in the channel before it goes.
+ARCHIVE_AFTER = timedelta(days=2)
+# Discord takes 100 characters; the rest leaves room for a suffix.
+NAME_LIMIT = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +63,17 @@ def contest(raw: Mapping[str, Any]) -> Contest:
         restrictions=raw.get("restrictions") or "",
         onsite=bool(raw.get("onsite")),
     )
+
+
+def slug(title: str, fallback: str) -> str:
+    """A channel name for the contest: Discord lowercases and rewrites the rest.
+
+    Doing it here rather than letting Discord do it keeps the stored name and
+    the real one the same, and the fallback covers a title that is all
+    punctuation once the separators collapse.
+    """
+    runs = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", title.lower())
+    return runs.strip("-")[:NAME_LIMIT].strip("-") or fallback
 
 
 def wanted(
