@@ -25,6 +25,8 @@ RSVP = "🚩"
 OPEN = "Open"
 CASUAL = "Casual"
 LIMITED = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
+# A guild event's description takes 1000 characters, markup and all.
+EVENT_LIMIT = 1000
 
 
 def _length(span: timedelta) -> str:
@@ -34,22 +36,24 @@ def _length(span: timedelta) -> str:
     return f"{days} 天" if days else f"{hours} 小時"
 
 
-def _summary(event: store.Event) -> str:
-    """The contest, as both the announcement and its own channel introduce it."""
+def _facts(event: store.Event, emphasis: str = "") -> list[str]:
+    """What the contest is, for the message and for the event alike."""
     where = f"實體（{event.location}）" if event.onsite else "線上"
     casual = "休閒" if event.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, event.format, casual) if part)
-    lines = [
-        f"## {event.title}",
-        f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}",
-    ]
+    lines = [f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}"]
     if event.restrictions not in {OPEN, CASUAL, ""}:
-        # Its own line, because being unable to enter outranks everything else
-        # on the message.
+        # Its own line, because being unable to enter outranks everything else.
         limit = LIMITED.get(event.restrictions, event.restrictions)
-        lines.append(f"**{limit}（{event.restrictions}）**")
+        lines.append(f"{emphasis}{limit}（{event.restrictions}）{emphasis}")
     if event.organizers:
         lines.append(f"主辦：{event.organizers}")
+    return lines
+
+
+def _summary(event: store.Event) -> str:
+    """The contest, as both the announcement and its own channel introduce it."""
+    lines = [f"## {event.title}", *_facts(event, "**")]
     # Angle brackets so two links do not become two embeds.
     lines.append(f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)")
     # The times last and apart: rendered by the client they are long strings,
@@ -75,7 +79,10 @@ def _channel_text(event: store.Event) -> str:
 
 
 def _event_description(event: store.Event) -> str:
-    return f"{event.format}　weight {event.weight:.2f}\n{event.url}\n{event.page}"
+    """The same facts as the announcement, then as much blurb as still fits."""
+    head = "\n".join([*_facts(event), event.url, event.page])
+    blurb = ctftime.shorten(event.description, EVENT_LIMIT - len(head) - 2)
+    return f"{head}\n\n{blurb}" if blurb else head
 
 
 class CtfCog(commands.Cog):

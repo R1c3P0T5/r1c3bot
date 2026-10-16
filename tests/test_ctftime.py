@@ -97,12 +97,9 @@ def test_the_threshold_can_be_raised_and_is_exclusive() -> None:
     assert ctftime.wanted([at_it, above_it], now=NOW, min_weight=25.0) == [above_it]
 
 
-def test_an_onsite_contest_is_still_worth_knowing_about() -> None:
-    # Whether a trip is worth it is the reader's call; the announcement says
-    # where it is.
-    onsite = listed(20, onsite=True, location="Taipei, Taiwan")
-
-    assert ctftime.wanted([onsite], now=NOW) == [onsite]
+def test_an_onsite_contest_is_not_for_us() -> None:
+    # The guild calendar is finite, and nobody plays these from home.
+    assert ctftime.wanted([listed(20, onsite=True, location="Taipei, Taiwan")], now=NOW) == []
 
 
 def test_a_contest_nobody_can_enter_is_left_out() -> None:
