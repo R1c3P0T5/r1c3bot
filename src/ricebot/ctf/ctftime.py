@@ -117,14 +117,16 @@ def wanted(
     since the last look: there is then no cursor to be stale after an outage,
     and a contest added to CTFtime late is picked up like any other.
 
-    Onsite contests stay in: a trip is a decision for the reader, not for the
-    filter, and the announcement says where it is.
+    Onsite contests are left out: a guild holds 100 scheduled events and a
+    busy three weeks lists two dozen contests, so the calendar is worth
+    spending only on the ones anyone here can actually enter from home.
     """
     return sorted(
         (
             found
             for found in contests
-            if found.weight > min_weight
+            if not found.onsite
+            and found.weight > min_weight
             and found.restrictions != CLOSED
             and now < found.starts_at <= now + within
         ),
