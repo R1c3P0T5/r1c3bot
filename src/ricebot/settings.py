@@ -81,7 +81,7 @@ class SettingsCog(commands.Cog):
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
-        await permissions.report(interaction, error)
+        await permissions.on_error(interaction, error)
 
     @app_commands.command(name="config", description="設定 bot 使用的頻道")
     @app_commands.guild_only()

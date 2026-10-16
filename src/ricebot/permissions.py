@@ -21,8 +21,13 @@ def manager_only(interaction: discord.Interaction) -> bool:
     return isinstance(user, discord.Member) and user.guild_permissions.manage_guild
 
 
-async def report(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
-    """Answer a rejected or failed command, and log what was not a refusal."""
+async def on_error(interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
+    """Tell the caller why their command did not run.
+
+    An interaction left unanswered shows as "the application did not respond",
+    which says neither "you lack permission" nor "it crashed".
+    """
+    # A refusal is expected behaviour, so it is answered but not logged.
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message(DENIED, ephemeral=True)
         return
