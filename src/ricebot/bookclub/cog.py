@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 import aiosqlite
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from ricebot import clock, permissions
 from ricebot.bookclub import rotation, schedule
@@ -17,6 +17,8 @@ from ricebot.store.settings import Key
 log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
+# The announcement is the one message the whole role should see.
+NOTIFY_ROLE = discord.AllowedMentions(roles=True, users=True)
 # A change of host is worth a notification; a topic or a cancellation is not.
 NOTIFY = discord.AllowedMentions(users=True)
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
@@ -27,6 +29,8 @@ CREATED = "已建立"
 NO_ASSIGNEE = "未指派"
 UNASSIGNED = f"{NO_ASSIGNEE}（還沒設定讀書會身分組，請管理員執行 `/bookclub role`）"
 EVENT_NAME = "讀書會"
+# The sign-up list: the reaction is the only record of who is coming.
+RSVP = "🚩"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
 # Discord has no date picker, so the list stands in for one: 25 consecutive
@@ -67,8 +71,22 @@ def _event_description(guild: discord.Guild, session: store.Session) -> str:
 
 
 class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
-    def __init__(self, db: aiosqlite.Connection) -> None:
+    def __init__(self, bot: commands.Bot, db: aiosqlite.Connection, guild_id: int) -> None:
+        self.bot = bot
         self.db = db
+        self.guild_id = guild_id
+        self._senders = {
+            schedule.Reminder.ANNOUNCE: self._announce,
+            schedule.Reminder.REMIND: self._remind,
+            schedule.Reminder.STARTING: self._starting,
+            schedule.Reminder.FOLLOWUP: self._followup,
+        }
+
+    async def cog_load(self) -> None:
+        self._tick.start()
+
+    async def cog_unload(self) -> None:
+        self._tick.cancel()
 
     async def cog_app_command_error(
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
@@ -431,3 +449,132 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             ephemeral=True,
             allowed_mentions=SILENT,
         )
+
+    @tasks.loop(minutes=10)
+    async def _tick(self) -> None:
+        """Send whatever reminder has come due."""
+        guild = self.bot.get_guild(self.guild_id)
+        if guild is None:
+            return
+        now = clock.now()
+        for session in await store.upcoming(self.db, schedule.pending_from(now)):
+            # Per session, so one that cannot be handled does not hold up the rest.
+            try:
+                for kind in schedule.due(session.starts_at, now):
+                    await self._send(guild, session, kind, now)
+            except Exception:
+                log.exception("session %s not handled", session.id)
+
+    @_tick.before_loop
+    async def _await_guild(self) -> None:
+        # get_guild returns None until the gateway has delivered the guild.
+        await self.bot.wait_until_ready()
+
+    @_tick.error
+    async def _tick_failed(self, error: BaseException) -> None:
+        # The loop does not restart itself, so this is the last word on it.
+        log.error("the bookclub loop stopped", exc_info=error)
+
+    async def _send(
+        self,
+        guild: discord.Guild,
+        session: store.Session,
+        kind: schedule.Reminder,
+        now: datetime,
+    ) -> None:
+        """Claim the reminder before sending it, and release the claim if it fails."""
+        if not await store.mark_reminder(self.db, session.id, kind, now):
+            return
+        try:
+            sent = await self._senders[kind](guild, session)
+        except Exception:
+            # Anything at all: the claim must not outlive a failed send.
+            log.exception("%s for session %s failed", kind, session.id)
+            sent = False
+        if not sent:
+            await store.unmark_reminder(self.db, session.id, kind)
+
+    async def _channel(self, guild: discord.Guild) -> discord.TextChannel | None:
+        channel_id = await settings.get_id(self.db, Key.BOOKCLUB_CHANNEL)
+        channel = guild.get_channel(channel_id) if channel_id is not None else None
+        if not isinstance(channel, discord.TextChannel):
+            log.warning("no bookclub channel set; the reminder will be retried")
+            return None
+        return channel
+
+    async def _attendees(self, channel: discord.TextChannel, session: store.Session) -> list[int]:
+        """Who reacted to the announcement, which is the whole sign-up list."""
+        if session.announce_message_id is None:
+            return []
+        message = await channel.fetch_message(session.announce_message_id)
+        for reaction in message.reactions:
+            if str(reaction.emoji) == RSVP:
+                return [user.id async for user in reaction.users() if not user.bot]
+        return []
+
+    async def _announce(self, guild: discord.Guild, session: store.Session) -> bool:
+        """A week ahead: post the sign-up message and add the first reaction."""
+        channel = await self._channel(guild)
+        if channel is None:
+            return False
+        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        lines = [] if role_id is None else [f"<@&{role_id}>"]
+        lines += [
+            f"## 讀書會 {clock.stamp(session.starts_at)}",
+            f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}",
+            f"主題：{session.topic or '未設定'}",
+            f"按 {RSVP} 報名。活動頁面的「感興趣」不算，提醒與點名都看這裡的 {RSVP}。",
+        ]
+        message = await channel.send("\n".join(lines), allowed_mentions=NOTIFY_ROLE)
+        await message.add_reaction(RSVP)
+        await store.set_announce(self.db, session.id, message.id)
+        return True
+
+    async def _remind(self, guild: discord.Guild, session: store.Session) -> bool:
+        """A day ahead: nudge whoever signed up."""
+        channel = await self._channel(guild)
+        if channel is None:
+            return False
+        await channel.send(
+            f"{clock.stamp(session.starts_at)} 讀書會"
+            f"（主題：{session.topic or '未設定'}）。\n"
+            f"{await self._roll_call(channel, session)}",
+            allowed_mentions=NOTIFY,
+        )
+        return True
+
+    async def _starting(self, guild: discord.Guild, session: store.Session) -> bool:
+        """An hour ahead: say where, and call the names."""
+        channel = await self._channel(guild)
+        if channel is None:
+            return False
+        voice_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
+        where = "" if voice_id is None else f"，在 <#{voice_id}>"
+        await channel.send(
+            f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始{where}。\n"
+            f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}\n"
+            f"{await self._roll_call(channel, session)}",
+            allowed_mentions=NOTIFY,
+        )
+        return True
+
+    async def _followup(self, guild: discord.Guild, session: store.Session) -> bool:
+        """Afterwards: name who is up next, and ask for a date."""
+        channel = await self._channel(guild)
+        if channel is None:
+            return False
+        candidates = await self._candidates(guild)
+        up_next = None if candidates is None else rotation.next_host(candidates, set())
+        await channel.send(
+            f"{clock.stamp(session.starts_at)} 的讀書會結束了。\n"
+            f"下一位輪到 {_mention(up_next, NO_ASSIGNEE)}，"
+            "用 `/bookclub new` 排下一場。",
+            allowed_mentions=NOTIFY,
+        )
+        return True
+
+    async def _roll_call(self, channel: discord.TextChannel, session: store.Session) -> str:
+        attendees = await self._attendees(channel, session)
+        if not attendees:
+            return f"還沒有人按 {RSVP} 報名。"
+        return "報名：" + " ".join(f"<@{user_id}>" for user_id in attendees)
