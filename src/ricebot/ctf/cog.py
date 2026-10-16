@@ -34,17 +34,21 @@ def _summary(event: store.Event) -> str:
     kind = " ".join(part for part in (where, event.format, event.restrictions) if part)
     lines = [
         f"## 🚩 {event.title}",
-        (
-            f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
-            f"（{clock.stamp(event.starts_at, 'R')}開始）"
-        ),
-        "",
         f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}",
     ]
     if event.organizers:
         lines.append(f"主辦：{event.organizers}")
     # Angle brackets so two links do not become two embeds.
-    lines += ["", f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)"]
+    lines.append(f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)")
+    # The times last and apart: rendered by the client they are two long
+    # strings, and above the facts they crowd them out.
+    lines += [
+        "",
+        (
+            f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
+            f"（{clock.stamp(event.starts_at, 'R')}開始）"
+        ),
+    ]
     return "\n".join(lines)
 
 
