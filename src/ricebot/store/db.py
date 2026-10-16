@@ -12,8 +12,7 @@ log = logging.getLogger(__name__)
 
 MIGRATIONS = resources.files("ricebot.store") / "migrations"
 
-# Filenames are interpolated into SQL below, so the pattern is both the naming
-# rule and the guard that keeps anything else out of a statement.
+# The filename is interpolated into SQL below, so this is also the guard.
 _NAME = re.compile(r"\A\d{3}_[a-z0-9_]+\.sql\Z")
 
 
@@ -21,8 +20,7 @@ async def connect(path: Path) -> aiosqlite.Connection:
     """Open the database, apply pending migrations, and return the connection."""
     db = await aiosqlite.connect(path)
     db.row_factory = aiosqlite.Row
-    # WAL lets the single writer run while readers proceed; foreign_keys is off
-    # by default in SQLite and must be set per connection.
+    # Both are per connection, and foreign_keys is off by default.
     await db.execute("PRAGMA journal_mode = WAL")
     await db.execute("PRAGMA foreign_keys = ON")
     applied = await migrate(db)
@@ -40,17 +38,13 @@ async def migrate(db: aiosqlite.Connection, directory: Traversable = MIGRATIONS)
 
     applied = []
     for name, sql in _pending(directory, done):
-        # executescript commits before it runs, so the script carries its own
-        # transaction. Recording the name inside it keeps a half-applied
-        # migration from being marked done.
+        # The record is inside the script, so DDL and record commit together.
         try:
             await db.executescript(
                 f"BEGIN;\n{sql}\nINSERT INTO schema_migrations (name) VALUES ('{name}');\nCOMMIT;"
             )
         except Exception:
-            # A failing statement aborts the script without rolling back, which
-            # would leave the connection inside the transaction, seeing the
-            # statements that did run.
+            # executescript does not roll back, leaving the connection mid-transaction.
             await db.rollback()
             raise
         applied.append(name)

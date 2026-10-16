@@ -15,11 +15,7 @@ class ConfigError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Config:
-    """Values fixed at boot: the token, the guild, and where the database lives.
-
-    Everything the community adjusts lives in the settings table instead, so
-    changing it needs a command rather than a redeploy.
-    """
+    """Values fixed at boot. Everything the community adjusts is in settings."""
 
     token: str
     guild_id: int
