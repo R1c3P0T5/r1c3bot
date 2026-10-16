@@ -84,10 +84,17 @@ def test_a_missing_weight_counts_as_none() -> None:
     assert ctftime.contest({**RAW, "weight": None}).weight == 0.0
 
 
-def test_the_weight_threshold_is_inclusive() -> None:
-    at_it, below_it = listed(20, weight=25.0), listed(21, weight=24.99)
+def test_an_unrated_contest_is_left_out() -> None:
+    # Weight 0 is CTFtime saying it knows nothing about the organisers.
+    rated, unrated = listed(20, weight=0.01), listed(21, weight=0.0)
 
-    assert ctftime.wanted([at_it, below_it], now=NOW) == [at_it]
+    assert ctftime.wanted([rated, unrated], now=NOW) == [rated]
+
+
+def test_the_threshold_can_be_raised_and_is_exclusive() -> None:
+    at_it, above_it = listed(20, weight=25.0), listed(21, weight=25.01)
+
+    assert ctftime.wanted([at_it, above_it], now=NOW, min_weight=25.0) == [above_it]
 
 
 def test_an_onsite_contest_is_still_worth_knowing_about() -> None:

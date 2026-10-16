@@ -15,8 +15,10 @@ AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
 # How far ahead to look, which is also how far back a restart reaches: the
 # whole window is asked for every time.
 WINDOW = timedelta(days=21)
-# Half of what CTFtime lists is weight 0, meaning no track record at all.
-MIN_WEIGHT = 25.0
+# Exclusive, so the default keeps every rated contest and drops the unrated
+# ones: a weight of 0 means CTFtime has nothing on the organisers at all, and
+# that is twenty of the next thirty-six.
+MIN_WEIGHT = 0.0
 # Finals and invitationals: nobody joins these by deciding to.
 CLOSED = "Prequalified"
 # As much of CTFtime's description as a Discord message takes comfortably.
@@ -122,7 +124,7 @@ def wanted(
         (
             found
             for found in contests
-            if found.weight >= min_weight
+            if found.weight > min_weight
             and found.restrictions != CLOSED
             and now < found.starts_at <= now + within
         ),
