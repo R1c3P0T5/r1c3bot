@@ -60,6 +60,18 @@ async def next_session(db: aiosqlite.Connection, not_before: datetime) -> Sessio
     return None if row is None else _session(row)
 
 
+async def upcoming(
+    db: aiosqlite.Connection, not_before: datetime, limit: int = 25
+) -> list[Session]:
+    """Sessions not yet finished, earliest first. The limit is Discord's."""
+    async with db.execute(
+        "SELECT * FROM sessions WHERE starts_at_utc >= ? AND cancelled_at IS NULL"
+        " ORDER BY starts_at_utc LIMIT ?",
+        (not_before.isoformat(), limit),
+    ) as cursor:
+        return [_session(row) for row in await cursor.fetchall()]
+
+
 async def ensure(db: aiosqlite.Connection, starts_at: datetime) -> Session:
     """The session starting then, inserting the row the first time."""
     await db.execute(

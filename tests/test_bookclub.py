@@ -41,6 +41,26 @@ async def test_a_cancelled_session_is_not_the_next_one(store) -> None:
     assert found.starts_at == at(30)
 
 
+async def test_upcoming_is_ordered_by_start(store) -> None:
+    for day in (30, 16, 23):
+        await bookclub.ensure(store, at(day))
+
+    found = await bookclub.upcoming(store, at(10))
+
+    assert [s.starts_at for s in found] == [at(16), at(23), at(30)]
+
+
+async def test_upcoming_omits_finished_and_cancelled_sessions(store) -> None:
+    await bookclub.ensure(store, at(2))
+    cancelled = await bookclub.ensure(store, at(16))
+    await bookclub.ensure(store, at(30))
+    await bookclub.cancel(store, cancelled.id, at(15))
+
+    found = await bookclub.upcoming(store, at(10))
+
+    assert [s.starts_at for s in found] == [at(30)]
+
+
 async def test_assigning_a_host_spends_their_turn(store) -> None:
     created = await bookclub.ensure(store, at(16))
 
