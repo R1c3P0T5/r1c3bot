@@ -33,7 +33,7 @@ def _summary(event: store.Event) -> str:
     where = f"實體（{event.location}）" if event.onsite else "線上"
     kind = " ".join(part for part in (where, event.format, event.restrictions) if part)
     lines = [
-        f"## 🚩 {event.title}",
+        f"## {event.title}",
         f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}",
     ]
     if event.organizers:
