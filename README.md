@@ -3,13 +3,14 @@
 r1c3p0t5 社群經營用的 Discord bot。
 
 > [!warning] **狀態：開發中。**
-> 目前只有專案骨架與工具鏈，功能尚未實作。
+> 讀書會已可用，CTF 揪團尚未實作。
 
 ## Feature
 
-**雙週讀書會**：每兩週一次，週五 20:00-22:00（Asia/Taipei）。
-建立 Discord Scheduled Event 與報名公告，管理固定名單的主持人輪替，記錄每場主題。
-提醒節奏為開始前 7 天公告、開始前 1 小時提醒、結束後詢問下一位主持人的主題。
+**讀書會**：用 `/bookclub new` 排一場，預設 20:00-22:00（Asia/Taipei）。
+建立 Discord Scheduled Event 與報名公告，主持人在身分組成員之間輪替，記錄每場主題。
+提醒節奏為開始前 7 天公告、1 天提醒、1 小時點名，結束後說出下一位輪到誰。
+報名以公告上的 🚩 reaction 為準，活動頁面的「感興趣」不算。
 
 **CTF 揪團**：定期從 CTFtime 抓取線上比賽，過濾後發公告。
 成員按 🚩 reaction 即加入該場比賽的私密討論頻道，取消 reaction 則退出。
@@ -20,7 +21,7 @@ r1c3p0t5 社群經營用的 Discord bot。
 - Python 3.13（`uv` 會依 `.python-version` 自動準備）
 - [uv](https://docs.astral.sh/uv/)
 - 一個 Discord application 與 bot token，並在 Developer Portal 開啟 **Server Members Intent**
-- 邀請時的 `permissions` 值為 `17601044432976`
+- 邀請時的 `permissions` 值為 `17601044499536`
 
 Server Members Intent 屬於 privileged intent，但 100 個伺服器以下的 bot 只要在 Developer Portal 打開開關，不需要審核。
 主持人輪替要讀取身分組的成員，而 Discord 沒有其他 API 能取得這份清單。
@@ -29,6 +30,12 @@ Message Content Intent 不要開，沒有任何功能讀訊息內容。
 權限值裡容易漏掉 `Create Events`（`1 << 44`）。
 Discord 把建立活動與管理活動拆成兩個權限，`Manage Events`（`1 << 33`）只能改別人建立的活動。
 缺它的症狀是場次排得起來但活動建不出來，log 留下 `403 Missing Permissions`。
+
+公告與提醒另外需要 `View Channel`、`Send Messages`、`Add Reactions` 與 `Read Message History`。
+最後一項容易漏：提醒要點名報名者，而讀出 🚩 的名單得先抓回公告訊息。
+
+讀書會身分組要設為「可提及」（role settings 的 *Allow anyone to @mention this role*）。
+否則公告裡的身分組提及不會通知任何人，而讓 bot 無視這個開關的唯一辦法是給它 `Mention Everyone`，權限範圍遠大於需要。
 
 鎖定 3.13 而非 3.14 的原因：`discord.py` 的 `speed` extra 對 `zstandard` 標了 `python_version <= "3.13"`。
 在 3.14 上它會被略過，等於靜默失去 gateway 的 zstd 壓縮。
