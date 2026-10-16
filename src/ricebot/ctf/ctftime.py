@@ -19,6 +19,8 @@ WINDOW = timedelta(days=21)
 MIN_WEIGHT = 25.0
 # Finals and invitationals: nobody joins these by deciding to.
 CLOSED = "Prequalified"
+# As much of CTFtime's description as a Discord message takes comfortably.
+BLURB = 1200
 # One CTFtime page. The window has never held anywhere near this many.
 LIMIT = 100
 
@@ -41,6 +43,10 @@ class Contest:
     format: str
     restrictions: str
     onsite: bool
+    location: str
+    organizers: str
+    participants: int
+    description: str
 
     @property
     def duration(self) -> timedelta:
@@ -62,7 +68,27 @@ def contest(raw: Mapping[str, Any]) -> Contest:
         format=raw.get("format") or "",
         restrictions=raw.get("restrictions") or "",
         onsite=bool(raw.get("onsite")),
+        location=raw.get("location") or "",
+        # Display only, so the names are joined here rather than in a table.
+        organizers="、".join(o["name"] for o in raw.get("organizers") or ()),
+        participants=raw.get("participants") or 0,
+        description=shorten(raw.get("description") or "", BLURB),
     )
+
+
+def shorten(text: str, limit: int) -> str:
+    """CTFtime's description, tidied and cut to length.
+
+    Its text is CRLF with long runs of blank lines, and a cut lands on a line
+    or word break where there is one: a description sliced mid-word reads like
+    a bug rather than an abbreviation.
+    """
+    tidy = re.sub(r"\n{3,}", "\n\n", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
+    if len(tidy) <= limit:
+        return tidy
+    cut = tidy[:limit]
+    edge = max(cut.rfind("\n"), cut.rfind(" "))
+    return (cut[:edge] if edge > limit // 2 else cut).rstrip() + "…"
 
 
 def slug(title: str, fallback: str) -> str:
@@ -83,18 +109,20 @@ def wanted(
     within: timedelta = WINDOW,
     min_weight: float = MIN_WEIGHT,
 ) -> list[Contest]:
-    """The online, enterable contests starting inside the window, earliest first.
+    """The enterable contests starting inside the window, earliest first.
 
     Asked of the whole window every time rather than of what has appeared
     since the last look: there is then no cursor to be stale after an outage,
     and a contest added to CTFtime late is picked up like any other.
+
+    Onsite contests stay in: a trip is a decision for the reader, not for the
+    filter, and the announcement says where it is.
     """
     return sorted(
         (
             found
             for found in contests
-            if not found.onsite
-            and found.weight >= min_weight
+            if found.weight >= min_weight
             and found.restrictions != CLOSED
             and now < found.starts_at <= now + within
         ),
