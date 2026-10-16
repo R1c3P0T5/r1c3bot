@@ -45,21 +45,6 @@ async def session(db: aiosqlite.Connection, starts_at: datetime) -> Session | No
     return None if row is None else _session(row)
 
 
-async def next_session(db: aiosqlite.Connection, not_before: datetime) -> Session | None:
-    """The earliest session that has not finished, ignoring cancelled ones.
-
-    The caller subtracts the duration from now, so a session in progress is
-    still the next one.
-    """
-    async with db.execute(
-        "SELECT * FROM sessions WHERE starts_at_utc >= ? AND cancelled_at IS NULL"
-        " ORDER BY starts_at_utc LIMIT 1",
-        (not_before.isoformat(),),
-    ) as cursor:
-        row = await cursor.fetchone()
-    return None if row is None else _session(row)
-
-
 async def history(db: aiosqlite.Connection, before: datetime, limit: int = 10) -> list[Session]:
     """Finished sessions, most recent first, cancelled ones included."""
     async with db.execute(
@@ -79,6 +64,12 @@ async def upcoming(
         (not_before.isoformat(), limit),
     ) as cursor:
         return [_session(row) for row in await cursor.fetchall()]
+
+
+async def next_session(db: aiosqlite.Connection, not_before: datetime) -> Session | None:
+    """The earliest session that has not finished, ignoring cancelled ones."""
+    found = await upcoming(db, not_before, limit=1)
+    return found[0] if found else None
 
 
 async def ensure(db: aiosqlite.Connection, starts_at: datetime) -> Session:
@@ -125,14 +116,9 @@ async def cancel(db: aiosqlite.Connection, session_id: int, at: datetime) -> Non
     await db.commit()
 
 
-async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int) -> None:
+async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int | None) -> None:
+    """Record the event, or forget it with None so a later command recreates it."""
     await db.execute("UPDATE sessions SET event_id = ? WHERE id = ?", (event_id, session_id))
-    await db.commit()
-
-
-async def clear_event(db: aiosqlite.Connection, session_id: int) -> None:
-    """Forget the event, so a later command can create a new one."""
-    await db.execute("UPDATE sessions SET event_id = NULL WHERE id = ?", (session_id,))
     await db.commit()
 
 

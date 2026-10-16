@@ -112,7 +112,7 @@ async def test_clearing_the_event_leaves_the_session(store) -> None:
     created = await bookclub.ensure(store, at(16))
     await bookclub.set_event(store, created.id, 999)
 
-    await bookclub.clear_event(store, created.id)
+    await bookclub.set_event(store, created.id, None)
     found = await bookclub.session(store, at(16))
 
     assert (found.event_id, found.starts_at) == (None, at(16))
