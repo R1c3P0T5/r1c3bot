@@ -173,6 +173,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
             return
 
+        # Asked before inserting, so the reply can say whether this scheduled
+        # the session or filled in what an earlier attempt could not.
+        existed = await store.session(self.db, starts_at) is not None
         session = await store.ensure(self.db, starts_at)
         if host is not None:
             # Volunteering spends the turn just as being assigned does.
@@ -188,7 +191,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         event = await self._add_event(interaction.guild, session)
 
         await interaction.response.send_message(
-            f"已排定 {clock.stamp(starts_at)}\n"
+            f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
+            f" {clock.stamp(starts_at)}\n"
             f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
             f"活動：{'已建立' if event else NO_VOICE}",
             allowed_mentions=NOTIFY,
