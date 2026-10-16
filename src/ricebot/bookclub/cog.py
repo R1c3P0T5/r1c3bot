@@ -76,7 +76,7 @@ def _form_link(channel: discord.TextChannel, session: store.Session) -> str:
     """A link back to the form, so a notification need not repeat it."""
     if session.announce_message_id is None:
         return ""
-    return f"\n報名表：{channel.get_partial_message(session.announce_message_id).jump_url}"
+    return f"\n{channel.get_partial_message(session.announce_message_id).jump_url}"
 
 
 def _event_name(session: store.Session) -> str:
@@ -456,7 +456,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """The host owns their own session; a manager owns all of them."""
         return session.host_user_id == interaction.user.id or permissions.manager_only(interaction)
 
-    @app_commands.command(description="改這場的主持人，輪替順位不動")
+    @app_commands.command(description="換這場的主持人，不影響誰下次輪到")
     @app_commands.guild_only()
     @app_commands.describe(when="哪一場，不給就是下一場")
     @app_commands.autocomplete(when=_choices)
@@ -467,16 +467,15 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session is None:
             return
         await interaction.response.defer(ephemeral=True)
+        replaced = session.host_user_id
         await store.swap_host(self.db, session.id, user.id)
         await self._sync(interaction.guild, session)
-        await self._update(
-            interaction,
-            session,
-            f"{clock.stamp(session.starts_at)} 這場換 {user.mention} 主持。\n"
-            "-# 輪替順位不動，這場仍算原本被指派那位的輪次。",
-        )
+        text = f"{clock.stamp(session.starts_at)} 這場換 {user.mention} 主持。"
+        if replaced is not None and replaced != user.id:
+            text += f"\n-# 這場算 <@{replaced}> 輪到的，所以 {user.mention} 之後還是會輪到。"
+        await self._update(interaction, session, text)
 
-    @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
+    @app_commands.command(description="這場先過，下一場仍然優先")
     @app_commands.guild_only()
     @app_commands.describe(when="哪一場，不給就是下一場")
     @app_commands.autocomplete(when=_choices)
@@ -502,7 +501,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await self._update(
             interaction,
             session,
-            f"<@{declined}> 這場先過，{note}\n-# 順位留著，下一場 <@{declined}> 還是優先。",
+            f"<@{declined}> 這場先過，{note}\n-# <@{declined}> 下一場還是優先。",
         )
 
     @app_commands.command(description="設定這場的主題")
@@ -543,7 +542,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             session,
             f"{clock.stamp(session.starts_at)} 這場取消了"
             f"{'，活動一起撤掉' if cancelled else '（本來就沒有活動）'}。\n"
-            "-# 沒有人的輪次被用掉，下一場照原本的順位走。",
+            "-# 這場不算任何人輪到。",
         )
 
     @app_commands.command(description="過去的場次與主題")
