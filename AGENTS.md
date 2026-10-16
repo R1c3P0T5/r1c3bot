@@ -115,8 +115,9 @@ It also validates every commit message in history, which means a bad message sta
   They keep separate tables; keep the two implementations consistent.
 - Wrap every `tasks.loop` body in `try`/`except` and attach a `@loop.error` handler.
   An uncaught exception stops the loop permanently and does not restart it.
-- Intents are `guilds` and `reactions` only.
-  Do not add `message_content`: it is privileged, needs Developer Portal approval, and nothing reads message text.
+- Intents are `guilds`, `members` and `reactions`.
+  `members` is privileged, but below 100 guilds it is a Developer Portal toggle rather than an approval; the host rotation reads the role's members, and no unprivileged API returns them.
+  Do not add `message_content`: nothing reads message text.
 
 ## Versioning
 
