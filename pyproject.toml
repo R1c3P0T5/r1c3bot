@@ -1,0 +1,42 @@
+[project]
+name = "ricebot"
+dynamic = ["version"]
+description = "Discord bot for the r1c3p0t5 community: book club scheduling and CTF team-ups"
+readme = "README.md"
+requires-python = ">=3.13,<3.14"
+authors = [{ name = "Yuto", email = "wayne71112@gmail.com" }]
+dependencies = [
+    "aiosqlite>=0.22.1",
+    "discord-py[speed]>=2.7.1",
+    "httpx>=0.28.1",
+]
+
+[project.scripts]
+ricebot = "ricebot.__main__:main"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "semver"
+
+[tool.rumdl.MD013]
+line-length = 0
+reflow = true
+reflow-mode = "sentence-per-line"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]

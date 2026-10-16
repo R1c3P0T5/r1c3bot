@@ -1,0 +1,84 @@
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.rumdl_cache/
+.hypothesis/
+.tox/
+.nox/
+
+# Python build outputs
+build/
+dist/
+*.egg-info/
+
+# Coverage and mutation outputs
+.coverage
+.coverage.*
+.cov.json
+coverage.xml
+htmlcov/
+.mutmut-cache/
+
+# Course lab and grader outputs
+.oj-out/
+.oj-corpus/
+.target.orig
+
+# JavaScript and Playwright outputs
+node_modules/
+playwright-report/
+test-results/
+blob-report/
+
+# LaTeX build outputs
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.lof
+*.lot
+*.out
+*.run.xml
+*.synctex.gz
+*.toc
+*.xdv
+_minted*/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
+
+# Agent working documents
+docs/superpowers/
