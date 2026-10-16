@@ -62,13 +62,27 @@ def due(
     now: datetime,
     offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS,
 ) -> list[Reminder]:
-    """The reminders whose time has passed, earliest first.
+    """The reminders that have come round and not yet gone stale, in order.
 
-    Due, not overdue: the loop polls, so a reminder is sent late rather than
-    skipped, and the record of having sent it is what stops a repeat.
+    Each one is superseded by the next, so a tick that arrives after the next
+    is due skips it: an outage must not replay a session's whole history of
+    reminders at once. The announcement is the exception, since it carries the
+    sign-up reaction the later ones count, so it holds until the session
+    starts.
     """
     times = reminders(start, offsets)
-    return sorted((kind for kind, at in times.items() if at <= now), key=times.__getitem__)
+    order = sorted(times, key=times.__getitem__)
+    pending = []
+    for position, kind in enumerate(order):
+        if kind is Reminder.ANNOUNCE:
+            expires = start
+        elif position + 1 < len(order):
+            expires = times[order[position + 1]]
+        else:
+            expires = times[kind] + CATCH_UP
+        if times[kind] <= now < expires:
+            pending.append(kind)
+    return pending
 
 
 def pending_from(
