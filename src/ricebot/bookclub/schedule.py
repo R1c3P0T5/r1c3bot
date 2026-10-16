@@ -14,14 +14,16 @@ class Reminder(StrEnum):
     """The kinds recorded in bookclub_reminders."""
 
     ANNOUNCE = "announce"
-    REMIND = "remind_1h"
+    REMIND_1D = "remind_1d"
+    REMIND_1H = "remind_1h"
     FOLLOWUP = "followup"
 
 
 # Offset from the session start; the follow-up lands after it ends.
 _OFFSETS = {
     Reminder.ANNOUNCE: -timedelta(days=7),
-    Reminder.REMIND: -timedelta(hours=1),
+    Reminder.REMIND_1D: -timedelta(days=1),
+    Reminder.REMIND_1H: -timedelta(hours=1),
     Reminder.FOLLOWUP: DURATION,
 }
 
