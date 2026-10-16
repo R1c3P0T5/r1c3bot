@@ -130,6 +130,12 @@ async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int) ->
     await db.commit()
 
 
+async def clear_event(db: aiosqlite.Connection, session_id: int) -> None:
+    """Forget the event, so a later command can create a new one."""
+    await db.execute("UPDATE sessions SET event_id = NULL WHERE id = ?", (session_id,))
+    await db.commit()
+
+
 async def set_topic(db: aiosqlite.Connection, session_id: int, topic: str) -> None:
     await db.execute("UPDATE sessions SET topic = ? WHERE id = ?", (topic, session_id))
     await db.commit()

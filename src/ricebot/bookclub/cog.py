@@ -106,10 +106,31 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await store.assign_host(self.db, session.id, host)
         return host
 
+    async def _event(
+        self, guild: discord.Guild, session: store.Session
+    ) -> discord.ScheduledEvent | None:
+        """The session's event, forgetting it when it is gone.
+
+        Fetched rather than read from cache: the scheduled-events cache needs
+        an intent we do not enable, so get_scheduled_event always misses. A
+        fetch also distinguishes "deleted by hand" from "not cached".
+        """
+        if session.event_id is None:
+            return None
+        try:
+            return await guild.fetch_scheduled_event(session.event_id)
+        except discord.NotFound:
+            await store.clear_event(self.db, session.id)
+            return None
+        except discord.HTTPException as error:
+            log.warning("event %s not fetched: %s", session.event_id, error)
+            return None
+
     async def _add_event(self, guild: discord.Guild, session: store.Session) -> int | None:
         """Put the session on the guild calendar, bound to the voice channel."""
-        if session.event_id is not None:
-            return session.event_id
+        existing = await self._event(guild, session)
+        if existing is not None:
+            return existing.id
         channel_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
         channel = guild.get_channel(channel_id) if channel_id is not None else None
         if not isinstance(channel, discord.VoiceChannel):
@@ -218,9 +239,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
         """Push the session's host and topic onto its event."""
-        if session.event_id is None:
-            return
-        event = guild.get_scheduled_event(session.event_id)
+        event = await self._event(guild, session)
         if event is None:
             return
         try:
@@ -237,9 +256,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await self._sync_event(guild, updated)
 
     async def _cancel_event(self, guild: discord.Guild, session: store.Session) -> bool:
-        if session.event_id is None:
-            return False
-        event = guild.get_scheduled_event(session.event_id)
+        event = await self._event(guild, session)
         if event is None:
             return False
         try:
