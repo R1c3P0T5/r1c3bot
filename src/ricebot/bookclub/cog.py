@@ -22,6 +22,7 @@ NOTIFY = discord.AllowedMentions(users=True)
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
+IN_PAST = "未建立（時間已過，Discord 不接受過去的活動）"
 EVENT_NAME = "讀書會"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
@@ -126,15 +127,22 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             log.warning("event %s not fetched: %s", session.event_id, error)
             return None
 
-    async def _add_event(self, guild: discord.Guild, session: store.Session) -> int | None:
-        """Put the session on the guild calendar, bound to the voice channel."""
-        existing = await self._event(guild, session)
-        if existing is not None:
-            return existing.id
+    async def _add_event(self, guild: discord.Guild, session: store.Session) -> str:
+        """Put the session on the guild calendar, and say what happened.
+
+        The caller reports the result, so the reason has to come back with it:
+        a bare None would be filled in with whichever cause seemed likeliest.
+        """
+        if await self._event(guild, session) is not None:
+            return "已建立"
+        if session.starts_at <= clock.now():
+            # Discord refuses an event in the past, and we can tell without
+            # spending a request to be told.
+            return IN_PAST
         channel_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
         channel = guild.get_channel(channel_id) if channel_id is not None else None
         if not isinstance(channel, discord.VoiceChannel):
-            return None
+            return NO_VOICE
         try:
             event = await guild.create_scheduled_event(
                 name=_event_name(session),
@@ -149,9 +157,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # The session is already scheduled; the event is the extra, so a
             # failure here must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
-            return None
+            return f"未建立（{str(error).splitlines()[0][:80]}）"
         await store.set_event(self.db, session.id, event.id)
-        return event.id
+        return "已建立"
 
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
@@ -191,13 +199,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             assigned = session.host_user_id
         else:
             assigned = await self._assign_host(interaction.guild, session)
-        event = await self._add_event(interaction.guild, session)
+        event_status = await self._add_event(interaction.guild, session)
 
         await interaction.followup.send(
             f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
             f" {clock.stamp(starts_at)}\n"
             f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
-            f"活動：{'已建立' if event else NO_VOICE}",
+            f"活動：{event_status}",
             allowed_mentions=NOTIFY,
         )
 
