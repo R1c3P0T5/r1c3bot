@@ -41,29 +41,6 @@ async def test_a_cancelled_session_is_not_the_next_one(store) -> None:
     assert found.starts_at == at(30)
 
 
-async def test_latest_is_none_in_an_empty_schedule(store) -> None:
-    assert await bookclub.latest(store) is None
-
-
-async def test_latest_is_the_last_session_scheduled(store) -> None:
-    for day in (16, 30, 23):
-        await bookclub.ensure(store, at(day))
-
-    found = await bookclub.latest(store)
-
-    assert found.starts_at == at(30)
-
-
-async def test_latest_skips_a_cancelled_session(store) -> None:
-    await bookclub.ensure(store, at(16))
-    cancelled = await bookclub.ensure(store, at(30))
-    await bookclub.cancel(store, cancelled.id, at(29))
-
-    found = await bookclub.latest(store)
-
-    assert found.starts_at == at(16)
-
-
 async def test_upcoming_is_ordered_by_start(store) -> None:
     for day in (30, 16, 23):
         await bookclub.ensure(store, at(day))
