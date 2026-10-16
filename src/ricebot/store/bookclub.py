@@ -45,6 +45,21 @@ async def session(db: aiosqlite.Connection, starts_at: datetime) -> Session | No
     return None if row is None else _session(row)
 
 
+async def next_session(db: aiosqlite.Connection, not_before: datetime) -> Session | None:
+    """The earliest session that has not finished, ignoring cancelled ones.
+
+    The caller subtracts the duration from now, so a session in progress is
+    still the next one.
+    """
+    async with db.execute(
+        "SELECT * FROM sessions WHERE starts_at_utc >= ? AND cancelled_at IS NULL"
+        " ORDER BY starts_at_utc LIMIT 1",
+        (not_before.isoformat(),),
+    ) as cursor:
+        row = await cursor.fetchone()
+    return None if row is None else _session(row)
+
+
 async def ensure(db: aiosqlite.Connection, starts_at: datetime) -> Session:
     """The session starting then, inserting the row the first time."""
     await db.execute(
