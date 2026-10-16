@@ -25,6 +25,7 @@ NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`�
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
 POSTED = "已發布"
+REUSED = "沿用原本那則"
 NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
 IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
 CREATED = "已建立"
@@ -214,9 +215,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return CREATED
 
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
-        """Post the sign-up form, and say what happened."""
+        """Post the sign-up form, and say what happened.
+
+        The row is re-read because a sync just before this may have found the
+        form deleted and forgotten it.
+        """
+        session = await store.session(self.db, session.starts_at) or session
         if session.announce_message_id is not None:
-            return POSTED
+            return REUSED
         channel = await self._channel(guild)
         if channel is None:
             return NO_CHANNEL
@@ -238,19 +244,26 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return POSTED
 
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
-        """Rewrite the form; the row must already be current."""
+        """Rewrite the form if it has drifted, and forget it if it is gone.
+
+        Fetched rather than edited blind: the fetch is the only thing that
+        notices a form deleted by hand, and a message id alone would otherwise
+        count as a form that exists. The row must already be current.
+        """
         if session.announce_message_id is None:
             return
         channel = await self._channel(guild)
         if channel is None:
             return
         role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        content = _announce_text(role_id, session)
         try:
-            await channel.get_partial_message(session.announce_message_id).edit(
-                content=_announce_text(role_id, session), allowed_mentions=NOTIFY_ROLE
-            )
+            message = await channel.fetch_message(session.announce_message_id)
+            if message.content == content:
+                return
+            await message.edit(content=content, allowed_mentions=NOTIFY_ROLE)
         except discord.NotFound:
-            # Deleted by hand; forgetting it lets the next pass post a new one.
+            # Deleted by hand; forgetting it lets a new one be posted.
             await store.set_announce(self.db, session.id, None)
         except discord.HTTPException as error:
             log.warning("announcement %s not updated: %s", session.announce_message_id, error)
@@ -327,6 +340,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Re-read, so the event is named after the topic just written.
         session = await store.session(self.db, starts_at) or session
         event_status = await self._add_event(interaction.guild, session)
+        # A session put back on carries projections from before it was
+        # cancelled, so they are corrected before one is reported missing.
+        await self._sync(interaction.guild, session)
         announce_status = await self._add_announce(interaction.guild, session)
 
         await interaction.followup.send(
@@ -584,8 +600,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await self._add_event(guild, session)
         else:
             await self._sync_event(guild, session)
-        # Nothing but our own writes changes the form, so a missing one is all
-        # there is to restore.
+        # The sync is what notices a form deleted by hand: it forgets the id,
+        # and the post below replaces the form in the same pass.
+        await self._sync_announce(guild, session)
         await self._add_announce(guild, session)
 
     async def _send(
