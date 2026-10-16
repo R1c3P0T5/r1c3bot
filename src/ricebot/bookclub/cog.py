@@ -1,7 +1,7 @@
 """The /bookclub commands."""
 
 import logging
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 import aiosqlite
 import discord
@@ -25,7 +25,17 @@ NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
 EVENT_NAME = "讀書會"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
+# Offsets from the last session, the usual fortnight first.
+DAY_OFFSETS = (14, 7, 21, 28, 35, 42)
+TIMES = ("20:00", "19:00", "19:30", "20:30", "21:00", "14:00")
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
+
+
+_WEEKDAYS = "一二三四五六日"
+
+
+def _weekday(day: date) -> str:
+    return f"週{_WEEKDAYS[day.weekday()]}"
 
 
 def _event_name(session: store.Session) -> str:
@@ -159,6 +169,30 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"活動：{'已建立' if event else NO_VOICE}",
             allowed_mentions=NOTIFY,
         )
+
+    @new.autocomplete("day")
+    async def _day_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Candidate dates counted from the last session, fortnight first."""
+        last = await store.latest(self.db)
+        base = clock.taipei(last.starts_at if last else clock.now()).date()
+        return [
+            app_commands.Choice(
+                name=f"{day:%m/%d}（{_weekday(day)}）"
+                + ("　上一場 + 2 週" if offset == 14 and last else ""),
+                value=day.isoformat(),
+            )
+            for offset, day in ((n, base + timedelta(days=n)) for n in DAY_OFFSETS)
+            if current in day.isoformat()
+        ]
+
+    @new.autocomplete("at")
+    async def _time_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        # Suggestions, not a closed set: a time typed by hand still works.
+        return [app_commands.Choice(name=at, value=at) for at in TIMES if current in at]
 
     async def _choices(
         self, interaction: discord.Interaction, current: str
