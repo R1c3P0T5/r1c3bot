@@ -137,8 +137,7 @@ Semantic versioning applies, with deployment as the consumer.
 
 - One logical change per commit, justifiable on its own.
   Split when the subject needs "and" or the body describes several changes; combine when a commit only makes sense together with the next one.
-- Every commit keeps CI green, so `git bisect` works: `uv run pre-commit run --all-files`, `uv lock --check`, and `uv build` must pass.
-  `uv run pytest` joins that list with the first test; it exits 5 while `tests/` is empty.
+- Every commit keeps CI green, so `git bisect` works: `uv run pre-commit run --all-files`, `uv lock --check`, `uv run pytest`, and `uv build` must pass.
 - Tests go in the same commit as the code they cover.
 - Changes to existing code get one commit per type: `fix`, `perf`, `refactor`, `feat`, and `style` never share a commit.
   A refactor must not change behavior; commit it before the change it enables.
