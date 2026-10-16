@@ -308,10 +308,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         event = await self._event(guild, updated)
         if event is None:
             return
+        name, description = _event_name(updated), _event_description(guild, updated)
+        if (event.name, event.description or "") == (name, description):
+            # The loop syncs every pass, so an unchanged event costs no request.
+            return
         try:
-            await event.edit(
-                name=_event_name(updated), description=_event_description(guild, updated)
-            )
+            await event.edit(name=name, description=description)
         except discord.HTTPException as error:
             log.warning("event %s not updated: %s", updated.event_id, error)
 
@@ -452,7 +454,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     @tasks.loop(minutes=10)
     async def _tick(self) -> None:
-        """Send whatever reminder has come due."""
+        """Keep the events in step with the database and send what is due."""
         guild = self.bot.get_guild(self.guild_id)
         if guild is None:
             return
@@ -460,6 +462,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         for session in await store.upcoming(self.db, schedule.pending_from(now)):
             # Per session, so one that cannot be handled does not hold up the rest.
             try:
+                await self._reconcile(guild, session)
                 for kind in schedule.due(session.starts_at, now):
                     await self._send(guild, session, kind, now)
             except Exception:
@@ -474,6 +477,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _tick_failed(self, error: BaseException) -> None:
         # The loop does not restart itself, so this is the last word on it.
         log.error("the bookclub loop stopped", exc_info=error)
+
+    async def _reconcile(self, guild: discord.Guild, session: store.Session) -> None:
+        """Create the event the session is missing, or correct one that drifted."""
+        if session.event_id is None:
+            await self._add_event(guild, session)
+        else:
+            await self._sync_event(guild, session)
 
     async def _send(
         self,
