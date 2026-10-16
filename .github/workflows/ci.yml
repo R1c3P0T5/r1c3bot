@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+# Actions are pinned to exact versions, as the pre-commit hooks are.
+# astral-sh/setup-uv publishes no floating major tag past v7, so @v10 does
+# not resolve at all.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - uses: actions/cache@v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
+      - run: uv sync --locked
+      - run: uv lock --check
+      - run: uv run pre-commit run --all-files
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # uv-dynamic-versioning derives the version from git tags, so the full
+      # history is required; a shallow fetch silently yields 0.0.0.
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - run: uv build
+      - name: Import the built wheel in an isolated environment
+        run: |
+          wheel=$(ls dist/*.whl)
+          uv run --isolated --no-project --with "$wheel" python -c "import ricebot"
+
+  commit-messages:
+    runs-on: ubuntu-latest
+    steps:
+      # The whole history is scanned, so a bad message stays red until the
+      # history is rewritten.
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.0
+      - name: Validate every commit message in history
+        run: |
+          rc=0
+          for sha in $(git rev-list HEAD); do
+            git log -1 --format=%B "$sha" > "$RUNNER_TEMP/message"
+            if ! uv run --no-project scripts/check_commit_msg.py "$RUNNER_TEMP/message"; then
+              echo "::error::invalid commit message in $sha"
+              rc=1
+            fi
+          done
+          exit "$rc"
