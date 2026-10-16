@@ -24,6 +24,8 @@ NOTIFY = discord.AllowedMentions(users=True)
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
+POSTED = "已發布"
+NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
 IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
 CREATED = "已建立"
 NO_ASSIGNEE = "未指派"
@@ -54,6 +56,21 @@ def _mention(user_id: int | None, fallback: str) -> str:
     return f"<@{user_id}>" if user_id is not None else fallback
 
 
+def _announce_text(role_id: int | None, session: store.Session) -> str:
+    """The sign-up form, which is where a session's information lives."""
+    lines = [] if role_id is None else [f"<@&{role_id}>"]
+    lines += [
+        f"## 讀書會 {clock.stamp(session.starts_at)}",
+        f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}",
+        f"主題：{session.topic or '未設定'}",
+    ]
+    if session.cancelled_at is not None:
+        lines.append("**這場已取消。**")
+    else:
+        lines.append(f"按 {RSVP} 報名。活動頁面的「感興趣」不算，提醒與點名都看這裡的 {RSVP}。")
+    return "\n".join(lines)
+
+
 def _event_name(session: store.Session) -> str:
     # The event name is capped at 100 characters, so a long topic is trimmed.
     return f"{EVENT_NAME}：{session.topic[:80]}" if session.topic else EVENT_NAME
@@ -76,7 +93,6 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         self.db = db
         self.guild_id = guild_id
         self._senders = {
-            schedule.Reminder.ANNOUNCE: self._announce,
             schedule.Reminder.REMIND: self._remind,
             schedule.Reminder.STARTING: self._starting,
             schedule.Reminder.FOLLOWUP: self._followup,
@@ -192,6 +208,59 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_event(self.db, session.id, event.id)
         return CREATED
 
+    async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
+        """Post the sign-up form, and say what happened."""
+        if session.announce_message_id is not None:
+            return POSTED
+        channel = await self._channel(guild)
+        if channel is None:
+            return NO_CHANNEL
+        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        try:
+            message = await channel.send(
+                _announce_text(role_id, session), allowed_mentions=NOTIFY_ROLE
+            )
+        except discord.HTTPException as error:
+            log.warning("no announcement for %s: %s", session.starts_at, error)
+            return f"未發布（Discord 回報 {str(error).splitlines()[0][:80]}）"
+        # Recorded before the reaction, so failing to add it cannot cost the
+        # message and leave the next pass posting a second one.
+        await store.set_announce(self.db, session.id, message.id)
+        try:
+            await message.add_reaction(RSVP)
+        except discord.HTTPException as error:
+            log.warning("no %s on announcement %s: %s", RSVP, message.id, error)
+        return POSTED
+
+    async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
+        """Rewrite the form; the row must already be current."""
+        if session.announce_message_id is None:
+            return
+        channel = await self._channel(guild)
+        if channel is None:
+            return
+        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        try:
+            await channel.get_partial_message(session.announce_message_id).edit(
+                content=_announce_text(role_id, session), allowed_mentions=NOTIFY_ROLE
+            )
+        except discord.NotFound:
+            # Deleted by hand; forgetting it lets the next pass post a new one.
+            await store.set_announce(self.db, session.id, None)
+        except discord.HTTPException as error:
+            log.warning("announcement %s not updated: %s", session.announce_message_id, error)
+
+    async def _sync(self, guild: discord.Guild, session: store.Session) -> None:
+        """Push the row onto both of its projections, the event and the form.
+
+        Re-read first: the caller holds a snapshot from before its own write.
+        """
+        updated = await store.session(self.db, session.starts_at)
+        if updated is None:
+            return
+        await self._sync_event(guild, updated)
+        await self._sync_announce(guild, updated)
+
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
     @app_commands.describe(
@@ -249,12 +318,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Re-read, so the event is named after the topic just written.
         session = await store.session(self.db, starts_at) or session
         event_status = await self._add_event(interaction.guild, session)
+        announce_status = await self._add_announce(interaction.guild, session)
 
         await interaction.followup.send(
             f"{lead} {clock.stamp(starts_at)}\n"
             f"主持人：{_mention(assigned, UNASSIGNED)}\n"
             f"主題：{session.topic or '未設定'}\n"
-            f"活動：{event_status}",
+            f"活動：{event_status}\n"
+            f"公告：{announce_status}",
             ephemeral=True,
             allowed_mentions=SILENT,
         )
@@ -322,24 +393,18 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return session
 
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
-        """Push the session's host and topic onto its event.
-
-        Re-read first: the caller holds a snapshot from before its own write.
-        """
-        updated = await store.session(self.db, session.starts_at)
-        if updated is None:
-            return
-        event = await self._event(guild, updated)
+        """Push the host and topic onto the event; the row must be current."""
+        event = await self._event(guild, session)
         if event is None:
             return
-        name, description = _event_name(updated), _event_description(guild, updated)
+        name, description = _event_name(session), _event_description(guild, session)
         if (event.name, event.description or "") == (name, description):
             # The loop syncs every pass, so an unchanged event costs no request.
             return
         try:
             await event.edit(name=name, description=description)
         except discord.HTTPException as error:
-            log.warning("event %s not updated: %s", updated.event_id, error)
+            log.warning("event %s not updated: %s", session.event_id, error)
 
     async def _cancel_event(self, guild: discord.Guild, session: store.Session) -> bool:
         event = await self._event(guild, session)
@@ -370,7 +435,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
         await interaction.response.defer()
         await store.swap_host(self.db, session.id, user.id)
-        await self._sync_event(interaction.guild, session)
+        await self._sync(interaction.guild, session)
         await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
@@ -399,7 +464,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             note = "但沒有其他人可以接手。請管理員用 `/bookclub host` 指派。"
         else:
             note = f"改由 <@{host}> 主持。順位保留，下一場仍優先。"
-        await self._sync_event(interaction.guild, session)
+        await self._sync(interaction.guild, session)
         await interaction.followup.send(f"<@{declined}> 推掉這場，{note}", allowed_mentions=NOTIFY)
 
     @app_commands.command(description="設定這場的主題")
@@ -414,7 +479,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
         await interaction.response.defer()
         await store.set_topic(self.db, session.id, text)
-        await self._sync_event(interaction.guild, session)
+        await self._sync(interaction.guild, session)
         await interaction.followup.send(
             f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。",
             allowed_mentions=SILENT,
@@ -433,6 +498,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.response.defer()
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
+        await self._sync(interaction.guild, session)
         await interaction.followup.send(
             f"已取消 {clock.stamp(session.starts_at)}"
             f"{'，活動也取消了' if cancelled else '（這場本來就沒有建立活動）'}。"
@@ -503,11 +569,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         log.error("the bookclub loop stopped", exc_info=error)
 
     async def _reconcile(self, guild: discord.Guild, session: store.Session) -> None:
-        """Create the event the session is missing, or correct one that drifted."""
+        """Restore what the row projects: the event, and the sign-up form."""
         if session.event_id is None:
             await self._add_event(guild, session)
         else:
             await self._sync_event(guild, session)
+        # Nothing but our own writes changes the form, so a missing one is all
+        # there is to restore.
+        await self._add_announce(guild, session)
 
     async def _send(
         self,
@@ -532,7 +601,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel_id = await settings.get_id(self.db, Key.BOOKCLUB_CHANNEL)
         channel = guild.get_channel(channel_id) if channel_id is not None else None
         if not isinstance(channel, discord.TextChannel):
-            log.warning("no bookclub channel set; the reminder will be retried")
+            log.warning("no bookclub channel set")
             return None
         return channel
 
@@ -545,24 +614,6 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             if str(reaction.emoji) == RSVP:
                 return [user.id async for user in reaction.users() if not user.bot]
         return []
-
-    async def _announce(self, guild: discord.Guild, session: store.Session) -> bool:
-        """A week ahead: post the sign-up message and add the first reaction."""
-        channel = await self._channel(guild)
-        if channel is None:
-            return False
-        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
-        lines = [] if role_id is None else [f"<@&{role_id}>"]
-        lines += [
-            f"## 讀書會 {clock.stamp(session.starts_at)}",
-            f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}",
-            f"主題：{session.topic or '未設定'}",
-            f"按 {RSVP} 報名。活動頁面的「感興趣」不算，提醒與點名都看這裡的 {RSVP}。",
-        ]
-        message = await channel.send("\n".join(lines), allowed_mentions=NOTIFY_ROLE)
-        await message.add_reaction(RSVP)
-        await store.set_announce(self.db, session.id, message.id)
-        return True
 
     async def _remind(self, guild: discord.Guild, session: store.Session) -> bool:
         """A day ahead: nudge whoever signed up."""
