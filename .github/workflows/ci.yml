@@ -6,8 +6,10 @@ on:
     tags: ["v*"]
   pull_request:
 
-# Actions are pinned to exact versions, as the pre-commit hooks are.
-# astral-sh/setup-uv publishes no floating major tag past v7, so @v10 does
+# Actions are pinned to a commit SHA with the version in a trailing comment,
+# the form astral-sh/setup-uv documents. A tag is a mutable ref and can be
+# repointed, so pinning one does not fix which code runs; a SHA does.
+# astral-sh/setup-uv also publishes no floating major tag past v7, so @v10 does
 # not resolve at all.
 permissions:
   contents: read
@@ -20,11 +22,11 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      - uses: actions/cache@v6.1.0
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ hashFiles('.pre-commit-config.yaml') }}
@@ -37,10 +39,10 @@ jobs:
     steps:
       # uv-dynamic-versioning derives the version from git tags, so the full
       # history is required; a shallow fetch silently yields 0.0.0.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
       - run: uv build
@@ -54,10 +56,10 @@ jobs:
     steps:
       # The whole history is scanned, so a bad message stays red until the
       # history is rewritten.
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
       - name: Validate every commit message in history
         run: |
           rc=0
