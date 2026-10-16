@@ -17,6 +17,8 @@ from ricebot.store.settings import Key
 log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
+# A change of host is worth a notification; a topic or a cancellation is not.
+NOTIFY = discord.AllowedMentions(users=True)
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
@@ -150,8 +152,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"已排定 {clock.stamp(starts_at)}\n"
             f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
             f"活動：{'已建立' if event else NO_VOICE}",
-            ephemeral=True,
-            allowed_mentions=SILENT,
+            allowed_mentions=NOTIFY,
         )
 
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
@@ -209,8 +210,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.response.send_message(
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
-            ephemeral=True,
-            allowed_mentions=SILENT,
+            allowed_mentions=NOTIFY,
         )
 
     @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
@@ -238,15 +238,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(
                 f"<@{declined}> 推掉了這場，但沒有其他人可以接手。"
                 "請管理員用 `/bookclub host` 指派。",
-                ephemeral=True,
-                allowed_mentions=SILENT,
+                allowed_mentions=NOTIFY,
             )
             return
         await self._refresh_event(interaction.guild, session)
         await interaction.response.send_message(
             f"<@{declined}> 推掉這場，改由 <@{host}> 主持。順位保留，下一場仍優先。",
-            ephemeral=True,
-            allowed_mentions=SILENT,
+            allowed_mentions=NOTIFY,
         )
 
     @app_commands.command(description="設定這場的主題")
@@ -264,7 +262,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_topic(self.db, session.id, text)
         await self._refresh_event(interaction.guild, session)
         await interaction.response.send_message(
-            f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。", ephemeral=True
+            f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。",
+            allowed_mentions=SILENT,
         )
 
     @app_commands.command(description="取消下一場，連活動一起")
@@ -283,7 +282,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"已取消 {clock.stamp(session.starts_at)}"
             f"{'，活動也取消了' if cancelled else '（沒有活動可取消）'}。"
             "這場不算任何人的輪次。",
-            ephemeral=True,
+            allowed_mentions=SILENT,
         )
 
     @app_commands.command(description="下一場的時間、主持人與主題")
