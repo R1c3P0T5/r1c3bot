@@ -7,6 +7,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from ricebot import permissions
 from ricebot.store import settings as store
 from ricebot.store.settings import Key
 
@@ -77,9 +78,16 @@ class SettingsCog(commands.Cog):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self.db = db
 
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        await permissions.on_error(interaction, error)
+
     @app_commands.command(name="config", description="設定 bot 使用的頻道")
     @app_commands.guild_only()
+    # default_permissions hides the command; the check is what refuses it.
     @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
     async def config(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
             await _summary(self.db),
