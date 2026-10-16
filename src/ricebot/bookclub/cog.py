@@ -122,7 +122,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         try:
             return await guild.fetch_scheduled_event(session.event_id)
         except discord.NotFound:
-            await store.clear_event(self.db, session.id)
+            await store.set_event(self.db, session.id, None)
             return None
         except discord.HTTPException as error:
             log.warning("event %s not fetched: %s", session.event_id, error)
