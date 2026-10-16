@@ -9,9 +9,6 @@ START = time(20, 0)
 DURATION = timedelta(hours=2)
 PERIOD = timedelta(days=14)
 
-ANNOUNCE_BEFORE = timedelta(days=7)
-REMIND_BEFORE = timedelta(hours=1)
-
 
 class Reminder(StrEnum):
     """The kinds recorded in bookclub_reminders."""
@@ -19,6 +16,14 @@ class Reminder(StrEnum):
     ANNOUNCE = "announce"
     REMIND = "remind_1h"
     FOLLOWUP = "followup"
+
+
+# Offset from the session start; the follow-up lands after it ends.
+_OFFSETS = {
+    Reminder.ANNOUNCE: -timedelta(days=7),
+    Reminder.REMIND: -timedelta(hours=1),
+    Reminder.FOLLOWUP: DURATION,
+}
 
 
 def start_of(anchor: date, index: int) -> datetime:
@@ -38,8 +43,4 @@ def current_or_next(anchor: date, moment: datetime) -> tuple[int, datetime]:
 
 def reminders(start: datetime) -> dict[Reminder, datetime]:
     """When each reminder for a session becomes due."""
-    return {
-        Reminder.ANNOUNCE: start - ANNOUNCE_BEFORE,
-        Reminder.REMIND: start - REMIND_BEFORE,
-        Reminder.FOLLOWUP: start + DURATION,
-    }
+    return {kind: start + offset for kind, offset in _OFFSETS.items()}
