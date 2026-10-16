@@ -117,8 +117,14 @@ async def cancel(db: aiosqlite.Connection, session_id: int, at: datetime) -> Non
 
 
 async def reopen(db: aiosqlite.Connection, session_id: int) -> None:
-    """Put a cancelled session back on, which spends its turn again."""
+    """Put a cancelled session back on, which spends its turn again.
+
+    The reminders sent for it are forgotten: the cancellation was announced,
+    so whatever they said is no longer true and the ones still due are sent
+    again.
+    """
     await db.execute("UPDATE sessions SET cancelled_at = NULL WHERE id = ?", (session_id,))
+    await db.execute("DELETE FROM bookclub_reminders WHERE session_id = ?", (session_id,))
     await db.commit()
 
 
