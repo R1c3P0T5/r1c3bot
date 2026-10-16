@@ -2,4 +2,5 @@ line-length = 100
 
 [lint]
 # ruff-format does not sort imports.
-extend-select = ["I"]
+# DTZ enforces the UTC convention; it is on by default, listed so it stays on.
+extend-select = ["I", "DTZ"]
