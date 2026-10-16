@@ -18,6 +18,12 @@ class Event:
     format: str
     url: str
     page: str
+    restrictions: str = ""
+    onsite: bool = False
+    location: str = ""
+    organizers: str = ""
+    participants: int = 0
+    description: str = ""
     announce_message_id: int | None = None
     channel_id: int | None = None
     event_id: int | None = None
@@ -34,6 +40,12 @@ def _event(row: aiosqlite.Row) -> Event:
         format=row["format"],
         url=row["url"],
         page=row["page"],
+        restrictions=row["restrictions"],
+        onsite=bool(row["onsite"]),
+        location=row["location"],
+        organizers=row["organizers"],
+        participants=row["participants"],
+        description=row["description"],
         announce_message_id=row["announce_message_id"],
         channel_id=row["channel_id"],
         event_id=row["event_id"],
@@ -51,12 +63,16 @@ async def ensure(db: aiosqlite.Connection, contest: Contest) -> Event:
     """
     await db.execute(
         "INSERT INTO ctf_events"
-        " (ctftime_id, title, starts_at_utc, finishes_at_utc, weight, format, url, page)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        " (ctftime_id, title, starts_at_utc, finishes_at_utc, weight, format, url, page,"
+        " restrictions, onsite, location, organizers, participants, description)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         " ON CONFLICT (ctftime_id) DO UPDATE SET"
         " title = excluded.title, starts_at_utc = excluded.starts_at_utc,"
         " finishes_at_utc = excluded.finishes_at_utc, weight = excluded.weight,"
-        " format = excluded.format, url = excluded.url, page = excluded.page",
+        " format = excluded.format, url = excluded.url, page = excluded.page,"
+        " restrictions = excluded.restrictions, onsite = excluded.onsite,"
+        " location = excluded.location, organizers = excluded.organizers,"
+        " participants = excluded.participants, description = excluded.description",
         (
             contest.id,
             contest.title,
@@ -66,6 +82,12 @@ async def ensure(db: aiosqlite.Connection, contest: Contest) -> Event:
             contest.format,
             contest.url,
             contest.page,
+            contest.restrictions,
+            int(contest.onsite),
+            contest.location,
+            contest.organizers,
+            contest.participants,
+            contest.description,
         ),
     )
     await db.commit()
@@ -99,10 +121,14 @@ async def open_events(db: aiosqlite.Connection) -> list[Event]:
 
 
 async def finished(db: aiosqlite.Connection, before: datetime) -> list[Event]:
-    """Contests whose channel is still open although they are over."""
+    """Contests that are over and not yet put away.
+
+    A contest nobody joined has no channel to move, but it is archived all the
+    same: that is what keeps it out of what the loop looks after.
+    """
     async with db.execute(
         "SELECT * FROM ctf_events WHERE archived_at IS NULL AND finishes_at_utc < ?"
-        " AND channel_id IS NOT NULL ORDER BY finishes_at_utc",
+        " ORDER BY finishes_at_utc",
         (before.isoformat(),),
     ) as cursor:
         return [_event(row) for row in await cursor.fetchall()]

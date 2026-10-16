@@ -1,6 +1,7 @@
 """The CTF cog: announce the contests, and open a channel when someone joins."""
 
 import logging
+from datetime import timedelta
 
 import aiosqlite
 import discord
@@ -20,19 +21,46 @@ SILENT = discord.AllowedMentions.none()
 RSVP = "🚩"
 
 
+def _length(span: timedelta) -> str:
+    days, hours = divmod(round(span.total_seconds() / 3600), 24)
+    if days and hours:
+        return f"{days} 天 {hours} 小時"
+    return f"{days} 天" if days else f"{hours} 小時"
+
+
+def _summary(event: store.Event) -> str:
+    """The contest, as both the announcement and its own channel introduce it."""
+    facts = [
+        f"實體 · {event.location}" if event.onsite else "線上",
+        event.format,
+        event.restrictions,
+        f"weight {event.weight:.2f}",
+        _length(event.finishes_at - event.starts_at),
+    ]
+    lines = [
+        f"## 🚩 {event.title}",
+        (
+            f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
+            f"（{clock.stamp(event.starts_at, 'R')}開始）"
+        ),
+        "　".join(fact for fact in facts if fact),
+    ]
+    if event.organizers:
+        lines.append(f"主辦：{event.organizers}")
+    # Angle brackets so two links do not become two embeds.
+    lines.append(f"[官網](<{event.url}>)　[CTFtime](<{event.page}>)")
+    if event.participants:
+        lines.append(f"-# CTFtime 上 {event.participants} 隊報名")
+    return "\n".join(lines)
+
+
 def _announce_text(event: store.Event) -> str:
-    """The contest, as the announcement channel sees it."""
-    return "\n".join(
-        [
-            f"## 🚩 {event.title}",
-            (
-                f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
-                f"（{clock.stamp(event.starts_at, 'R')}開始）"
-            ),
-            f"{event.format}　weight {event.weight:.2f}　{event.page}",
-            f"\n想打的按個 {RSVP}，我開一個討論頻道給你們。",
-        ]
-    )
+    return f"{_summary(event)}\n\n想打的按個 {RSVP}，我開一個討論頻道給你們。"
+
+
+def _channel_text(event: store.Event) -> str:
+    """The channel's first message: the summary, plus what CTFtime says about it."""
+    return f"{_summary(event)}\n\n{event.description}" if event.description else _summary(event)
 
 
 def _event_description(event: store.Event) -> str:
@@ -68,9 +96,17 @@ class CtfCog(commands.Cog):
             listed = []
         for contest in ctftime.wanted(listed, now=now):
             try:
-                await self._reconcile(guild, await store.ensure(self.db, contest))
+                await store.ensure(self.db, contest)
             except Exception:
-                log.exception("contest %s not handled", contest.id)
+                log.exception("contest %s not recorded", contest.id)
+        # Everything still open, not only what this pass listed: a contest
+        # that has started, or has dropped out of the window, still has an
+        # announcement and an event to keep in step.
+        for event in await store.open_events(self.db):
+            try:
+                await self._reconcile(guild, event)
+            except Exception:
+                log.exception("contest %s not handled", event.ctftime_id)
         for event in await store.finished(self.db, now - ctftime.ARCHIVE_AFTER):
             try:
                 await self._archive(guild, event)
@@ -234,7 +270,7 @@ class CtfCog(commands.Cog):
             return None
         await store.set_channel(self.db, event.ctftime_id, channel.id)
         log.info("channel %s created for contest %s", channel.id, event.ctftime_id)
-        await channel.send(_announce_text(event), allowed_mentions=SILENT)
+        await channel.send(_channel_text(event), allowed_mentions=SILENT)
         return channel
 
     @commands.Cog.listener()

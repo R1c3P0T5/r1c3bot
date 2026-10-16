@@ -16,6 +16,10 @@ RAW = {
     "format": "Jeopardy",
     "restrictions": "Open",
     "onsite": False,
+    "location": "",
+    "organizers": [{"id": 5084, "name": "Securinets"}],
+    "participants": 280,
+    "description": "Securinets CTF Quals 2026 is an online Jeopardy-style CTF.\r\n\r\n\r\nCategories: Web, Pwn\r\n",
 }
 
 
@@ -41,6 +45,37 @@ def test_a_contest_keeps_its_times_weight_and_length() -> None:
     assert found.duration == timedelta(hours=36)
 
 
+def test_a_contest_carries_what_the_announcement_says() -> None:
+    found = ctftime.contest(RAW)
+
+    assert (found.organizers, found.participants, found.restrictions) == ("Securinets", 280, "Open")
+    assert (found.onsite, found.location) == (False, "")
+
+
+def test_the_description_loses_its_crlf_and_its_blank_runs() -> None:
+    assert ctftime.contest(RAW).description == (
+        "Securinets CTF Quals 2026 is an online Jeopardy-style CTF.\n\nCategories: Web, Pwn"
+    )
+
+
+def test_several_organizers_are_joined() -> None:
+    raw = {**RAW, "organizers": [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]}
+
+    assert ctftime.contest(raw).organizers == "A、B"
+
+
+def test_a_long_description_is_cut_at_a_word_break() -> None:
+    assert ctftime.shorten("one two three four", 12) == "one two…"
+
+
+def test_a_description_that_fits_is_left_alone() -> None:
+    assert ctftime.shorten("one two", 12) == "one two"
+
+
+def test_a_cut_with_nowhere_to_break_takes_the_whole_width() -> None:
+    assert ctftime.shorten("aaaaaaaaaaaaaaaa", 8) == "aaaaaaaa…"
+
+
 def test_the_ctftime_page_stands_in_for_a_missing_site() -> None:
     assert ctftime.contest({**RAW, "url": ""}).url == "https://ctftime.org/event/3364/"
 
@@ -55,8 +90,12 @@ def test_the_weight_threshold_is_inclusive() -> None:
     assert ctftime.wanted([at_it, below_it], now=NOW) == [at_it]
 
 
-def test_an_onsite_contest_is_not_for_us() -> None:
-    assert ctftime.wanted([listed(20, onsite=True)], now=NOW) == []
+def test_an_onsite_contest_is_still_worth_knowing_about() -> None:
+    # Whether a trip is worth it is the reader's call; the announcement says
+    # where it is.
+    onsite = listed(20, onsite=True, location="Taipei, Taiwan")
+
+    assert ctftime.wanted([onsite], now=NOW) == [onsite]
 
 
 def test_a_contest_nobody_can_enter_is_left_out() -> None:

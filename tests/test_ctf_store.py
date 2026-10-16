@@ -16,6 +16,10 @@ def contest(ctftime_id: int = 3364, **changed: object) -> Contest:
         "format": "Jeopardy",
         "restrictions": "Open",
         "onsite": False,
+        "location": "",
+        "organizers": "HITCON",
+        "participants": 123,
+        "description": "The HITCON CTF.",
     }
     return Contest(**{**fields, **changed})  # type: ignore[arg-type]
 
@@ -24,6 +28,8 @@ async def test_a_contest_comes_back_with_its_times(store) -> None:
     saved = await ctf.ensure(store, contest())
 
     assert (saved.ctftime_id, saved.title, saved.weight) == (3364, "HITCON CTF 2026", 91.16)
+    assert (saved.organizers, saved.participants, saved.onsite) == ("HITCON", 123, False)
+    assert saved.description == "The HITCON CTF."
     assert saved.starts_at == datetime(2026, 10, 23, 14, 0, tzinfo=UTC)
     assert saved.finishes_at == datetime(2026, 10, 25, 14, 0, tzinfo=UTC)
 
@@ -75,7 +81,11 @@ async def test_a_contest_is_due_to_be_put_away_once_it_is_over(store) -> None:
     assert (at_the_finish, [found.ctftime_id for found in a_second_later]) == ([], [3364])
 
 
-async def test_a_contest_without_a_channel_has_nothing_to_put_away(store) -> None:
+async def test_a_contest_nobody_joined_is_still_put_away(store) -> None:
+    # Nothing to move, but archiving it is what stops the loop looking after
+    # it for ever.
     await ctf.ensure(store, contest())
 
-    assert await ctf.finished(store, datetime(2026, 11, 1, 0, 0, tzinfo=UTC)) == []
+    due = await ctf.finished(store, datetime(2026, 11, 1, 0, 0, tzinfo=UTC))
+
+    assert [found.ctftime_id for found in due] == [3364]
