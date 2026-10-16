@@ -37,3 +37,31 @@ def test_offsets_override_the_defaults() -> None:
     assert schedule.reminders(EIGHT_PM, retimed) == {
         Reminder.ANNOUNCE: datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
     }
+
+
+def test_nothing_is_due_before_the_first_reminder() -> None:
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 9, 11, 59, tzinfo=UTC)) == []
+
+
+def test_the_due_reminders_come_in_the_order_they_are_sent() -> None:
+    # An hour after the session ended, so every reminder is behind us.
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 16, 15, 0, tzinfo=UTC)) == [
+        Reminder.ANNOUNCE,
+        Reminder.REMIND,
+        Reminder.STARTING,
+        Reminder.FOLLOWUP,
+    ]
+
+
+def test_a_reminder_is_due_the_moment_it_comes_round() -> None:
+    assert schedule.due(EIGHT_PM, datetime(2026, 10, 15, 12, 0, tzinfo=UTC)) == [
+        Reminder.ANNOUNCE,
+        Reminder.REMIND,
+    ]
+
+
+def test_a_session_stays_pending_through_the_catch_up_window() -> None:
+    # The follow-up falls 2 hours after the start, and may be a day late.
+    assert schedule.pending_from(datetime(2026, 10, 17, 12, 0, tzinfo=UTC)) == datetime(
+        2026, 10, 16, 10, 0, tzinfo=UTC
+    )
