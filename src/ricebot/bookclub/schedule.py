@@ -38,6 +38,15 @@ def starts_at(day: date, at: time = START) -> datetime:
     return datetime.combine(day, at, tzinfo=TAIPEI).astimezone(UTC)
 
 
+def cutoff(now: datetime) -> datetime:
+    """The start time dividing finished sessions from current ones.
+
+    A session in progress is still current, so the boundary trails now by the
+    duration.
+    """
+    return now - DURATION
+
+
 def reminders(
     start: datetime, offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS
 ) -> dict[Reminder, datetime]:

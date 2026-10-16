@@ -15,6 +15,13 @@ def test_the_local_time_can_be_given() -> None:
     assert schedule.starts_at(FRIDAY, time(19, 30)) == datetime(2026, 10, 16, 11, 30, tzinfo=UTC)
 
 
+def test_a_session_in_progress_is_still_current() -> None:
+    # 21:00 Taipei, an hour into the session that started at 20:00.
+    assert schedule.cutoff(datetime(2026, 10, 16, 13, 0, tzinfo=UTC)) == datetime(
+        2026, 10, 16, 11, 0, tzinfo=UTC
+    )
+
+
 def test_reminders_bracket_the_session() -> None:
     assert schedule.reminders(EIGHT_PM) == {
         Reminder.ANNOUNCE: datetime(2026, 10, 9, 12, 0, tzinfo=UTC),

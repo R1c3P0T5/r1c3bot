@@ -233,7 +233,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """The upcoming sessions, for the `when` option of every command."""
-        sessions = await store.upcoming(self.db, clock.now() - schedule.DURATION)
+        sessions = await store.upcoming(self.db, self._cutoff())
         return [
             app_commands.Choice(
                 name=f"{clock.taipei(s.starts_at):%m/%d %H:%M}　{s.topic or '未設定主題'}"[:100],
@@ -242,11 +242,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             for s in sessions
         ]
 
+    def _cutoff(self) -> datetime:
+        return schedule.cutoff(clock.now())
+
     async def _target(self, when: str | None) -> store.Session | None:
         """The session a command acts on: the chosen one, or else the next."""
         if when is None:
-            # A session in progress is still the next one, hence the duration.
-            return await store.next_session(self.db, clock.now() - schedule.DURATION)
+            return await store.next_session(self.db, self._cutoff())
         try:
             return await store.session(self.db, datetime.fromisoformat(when))
         except ValueError:
@@ -407,7 +409,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def history(
         self, interaction: discord.Interaction, count: app_commands.Range[int, 1, 20] = 10
     ) -> None:
-        sessions = await store.history(self.db, clock.now() - schedule.DURATION, count)
+        sessions = await store.history(self.db, self._cutoff(), count)
         if not sessions:
             await interaction.response.send_message("還沒有結束的場次。", ephemeral=True)
             return
@@ -424,8 +426,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.command(description="下一場的時間、主持人與主題")
     @app_commands.guild_only()
     async def next(self, interaction: discord.Interaction) -> None:
-        # A session in progress is still the next one, hence the duration.
-        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+        session = await store.next_session(self.db, self._cutoff())
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
