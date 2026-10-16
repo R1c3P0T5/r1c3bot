@@ -26,6 +26,22 @@ NO_HOST = "這場還沒有指派主持人。"
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 
 
+def _event_name(session: store.Session) -> str:
+    # The event name is capped at 100 characters, so a long topic is trimmed.
+    return f"{EVENT_NAME}：{session.topic[:80]}" if session.topic else EVENT_NAME
+
+
+def _event_description(guild: discord.Guild, session: store.Session) -> str:
+    lines = []
+    if session.host_user_id is not None:
+        member = guild.get_member(session.host_user_id)
+        # An event description is plain text, so a mention would not render.
+        lines.append(f"主持人：{member.display_name if member else session.host_user_id}")
+    if session.topic:
+        lines.append(f"主題：{session.topic}")
+    return "\n".join(lines)
+
+
 class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self.db = db
@@ -85,7 +101,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return None
         try:
             event = await guild.create_scheduled_event(
-                name=EVENT_NAME,
+                name=_event_name(session),
+                description=_event_description(guild, session),
                 start_time=session.starts_at,
                 end_time=session.starts_at + schedule.DURATION,
                 entity_type=discord.EntityType.voice,
@@ -137,6 +154,41 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             allowed_mentions=SILENT,
         )
 
+    async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
+        """Push the session's host and topic onto its event."""
+        if session.event_id is None:
+            return
+        event = guild.get_scheduled_event(session.event_id)
+        if event is None:
+            return
+        try:
+            await event.edit(
+                name=_event_name(session), description=_event_description(guild, session)
+            )
+        except discord.HTTPException as error:
+            log.warning("event %s not updated: %s", session.event_id, error)
+
+    async def _refresh_event(self, guild: discord.Guild, session: store.Session) -> None:
+        """Re-read the session, then sync, so the event shows the new values."""
+        updated = await store.session(self.db, session.starts_at)
+        if updated is not None:
+            await self._sync_event(guild, updated)
+
+    async def _cancel_event(self, guild: discord.Guild, session: store.Session) -> bool:
+        if session.event_id is None:
+            return False
+        event = guild.get_scheduled_event(session.event_id)
+        if event is None:
+            return False
+        try:
+            # Cancelled rather than deleted: anyone who marked interest gets a
+            # notice, and here the session really is off.
+            await event.cancel()
+        except discord.HTTPException as error:
+            log.warning("event %s not cancelled: %s", session.event_id, error)
+            return False
+        return True
+
     def _may_manage(self, interaction: discord.Interaction, session: store.Session) -> bool:
         """The host owns their own session; a manager owns all of them."""
         return session.host_user_id == interaction.user.id or permissions.manager_only(interaction)
@@ -153,6 +205,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         await store.swap_host(self.db, session.id, user.id)
+        await self._refresh_event(interaction.guild, session)
         await interaction.response.send_message(
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
@@ -181,6 +234,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host = await self._assign_host(interaction.guild, session)
         if host is None:
             await store.clear_host(self.db, session.id)
+            await self._refresh_event(interaction.guild, session)
             await interaction.response.send_message(
                 f"<@{declined}> 推掉了這場，但沒有其他人可以接手。"
                 "請管理員用 `/bookclub host` 指派。",
@@ -188,10 +242,48 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
                 allowed_mentions=SILENT,
             )
             return
+        await self._refresh_event(interaction.guild, session)
         await interaction.response.send_message(
             f"<@{declined}> 推掉這場，改由 <@{host}> 主持。順位保留，下一場仍優先。",
             ephemeral=True,
             allowed_mentions=SILENT,
+        )
+
+    @app_commands.command(description="設定這場的主題")
+    @app_commands.guild_only()
+    @app_commands.describe(text="寫進活動名稱與公告")
+    async def topic(self, interaction: discord.Interaction, text: str) -> None:
+        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+        if session is None:
+            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            return
+        if not self._may_manage(interaction, session):
+            await interaction.response.send_message(NOT_HOST, ephemeral=True)
+            return
+
+        await store.set_topic(self.db, session.id, text)
+        await self._refresh_event(interaction.guild, session)
+        await interaction.response.send_message(
+            f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。", ephemeral=True
+        )
+
+    @app_commands.command(description="取消下一場，連活動一起")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
+    async def cancel(self, interaction: discord.Interaction) -> None:
+        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+        if session is None:
+            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            return
+
+        await store.cancel(self.db, session.id, clock.now())
+        cancelled = await self._cancel_event(interaction.guild, session)
+        await interaction.response.send_message(
+            f"已取消 {clock.stamp(session.starts_at)}"
+            f"{'，活動也取消了' if cancelled else '（沒有活動可取消）'}。"
+            "這場不算任何人的輪次。",
+            ephemeral=True,
         )
 
     @app_commands.command(description="下一場的時間、主持人與主題")
