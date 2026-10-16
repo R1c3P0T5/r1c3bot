@@ -29,7 +29,6 @@ NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/
 IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
 CREATED = "已建立"
 NO_ASSIGNEE = "未指派"
-UNASSIGNED = f"{NO_ASSIGNEE}（還沒設定讀書會身分組，請管理員執行 `/bookclub role`）"
 EVENT_NAME = "讀書會"
 # The sign-up list: the reaction is the only record of who is coming.
 RSVP = "🚩"
@@ -42,7 +41,6 @@ DAY_SPAN = 25
 # exactly 25 entries, which is also Discord's limit for an autocomplete reply.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
-DEFAULT_AT = schedule.START.strftime("%H:%M")
 
 
 _WEEKDAYS = "一二三四五六日"
@@ -286,9 +284,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.guild_only()
     @app_commands.describe(
         day="YYYY-MM-DD",
-        at=f"HH:MM，預設 {DEFAULT_AT}",
-        host="不給就照輪替指派",
-        topic="之後也可以用 /bookclub topic 設定",
+        at="HH:MM",
+        host="這場的主持人",
+        topic="之後可以用 /bookclub topic 改",
     )
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
@@ -296,9 +294,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         self,
         interaction: discord.Interaction,
         day: str,
-        at: str = DEFAULT_AT,
-        host: discord.Member | None = None,
-        topic: str | None = None,
+        at: str,
+        host: discord.Member,
+        topic: str,
     ) -> None:
         try:
             starts_at = schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
@@ -323,19 +321,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         else:
             lead = "已排定"
         session = await store.ensure(self.db, starts_at)
-        if topic is not None:
-            await store.set_topic(self.db, session.id, topic)
-        if host is not None:
-            # Volunteering spends the turn just as being assigned does.
-            await store.assign_host(self.db, session.id, host.id)
-            assigned: int | None = host.id
-        elif session.host_user_id is not None:
-            # The session already existed, so re-running new must not reshuffle
-            # its host: the rotation would pick someone else, having already
-            # counted this session's turn.
-            assigned = session.host_user_id
-        else:
-            assigned = await self._assign_host(interaction.guild, session)
+        await store.set_topic(self.db, session.id, topic)
+        # Volunteering spends the turn just as being assigned does.
+        await store.assign_host(self.db, session.id, host.id)
         # Re-read, so the event is named after the topic just written.
         session = await store.session(self.db, starts_at) or session
         event_status = await self._add_event(interaction.guild, session)
@@ -343,7 +331,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
         await interaction.followup.send(
             f"{lead} {clock.stamp(starts_at)}\n"
-            f"主持人：{_mention(assigned, UNASSIGNED)}\n"
+            f"主持人：{host.mention}\n"
             f"主題：{session.topic or '未設定'}\n"
             f"活動：{event_status}\n"
             f"公告：{announce_status}",
