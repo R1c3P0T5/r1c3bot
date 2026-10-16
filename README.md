@@ -16,6 +16,8 @@ r1c3p0t5 社群經營用的 Discord bot。
 成員按 🚩 reaction 即加入該場比賽的私密討論頻道，取消 reaction 則退出。
 比賽結束一段時間後，頻道自動搬到 archive category 並設為唯讀。
 
+**操作紀錄**：每一個執行成功的指令都記下執行者、指令與參數，存在 `audit_log` 表裡。
+
 ## Environment
 
 - Python 3.13（`uv` 會依 `.python-version` 自動準備）
