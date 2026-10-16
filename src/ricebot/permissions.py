@@ -33,8 +33,13 @@ async def on_error(interaction: discord.Interaction, error: app_commands.AppComm
         return
     name = interaction.command.name if interaction.command else "unknown"
     log.error("/%s failed", name, exc_info=error)
-    # An interaction already answered can only be followed up, not replied to.
-    if interaction.response.is_done():
-        await interaction.followup.send(FAILED, ephemeral=True)
-    else:
-        await interaction.response.send_message(FAILED, ephemeral=True)
+    try:
+        # An interaction already answered can only be followed up, not replied to.
+        if interaction.response.is_done():
+            await interaction.followup.send(FAILED, ephemeral=True)
+        else:
+            await interaction.response.send_message(FAILED, ephemeral=True)
+    except discord.HTTPException:
+        # An expired token is often the original failure, and reporting it
+        # would raise the same error again on top of the real one.
+        log.warning("/%s could not be answered", name)
