@@ -40,12 +40,13 @@ def _summary(event: store.Event) -> str:
         lines.append(f"主辦：{event.organizers}")
     # Angle brackets so two links do not become two embeds.
     lines.append(f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)")
-    # The times last and apart: rendered by the client they are two long
-    # strings, and above the facts they crowd them out.
+    # The times last and apart: rendered by the client they are long strings,
+    # and above the facts they crowd them out. The short style drops the
+    # weekday, which the day and the duration above already imply.
     lines += [
         "",
         (
-            f"{clock.stamp(event.starts_at)} ～ {clock.stamp(event.finishes_at)}"
+            f"{clock.stamp(event.starts_at, 'f')} ～ {clock.stamp(event.finishes_at, 'f')}"
             f"（{clock.stamp(event.starts_at, 'R')}開始）"
         ),
     ]
