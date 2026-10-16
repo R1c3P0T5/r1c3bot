@@ -84,7 +84,8 @@ Coverage is a by-product, never the goal.
 
 ## Repository tooling
 
-Run `uv sync`, then `uv run pre-commit install` once per clone; this installs both the pre-commit and commit-msg hooks.
+Run `uv sync`, then `uv run pre-commit install` once per clone; this installs the pre-commit, commit-msg, and pre-push hooks.
+Re-run it after a hook type is added, or an existing clone keeps the hooks it already has.
 `pre-commit` checks only tracked files, so stage new files before `uv run pre-commit run --all-files`.
 To run one hook manually: `uv run pre-commit run ruff-format --files <paths>`.
 
@@ -94,6 +95,10 @@ Its version is pinned by the `ruff-pre-commit` `rev`, and a second source of tru
 The commit-msg hook needs `--no-project`: this project's version derives from git state, so plain `uv run` reinstalls the package on every commit.
 `scripts/check_commit_msg.py` is shared with the other personal repositories.
 Keep its validation logic in sync with them, but let formatting follow this repository's Ruff config and the example in its failure message name a scope that exists here.
+
+The pre-push hooks check the lockfile and the messages of the commits being pushed.
+Those two are there because their failures are the expensive ones: a stale lockfile breaks everyone's `uv sync --locked`, and a bad message that reaches a shared branch can only be fixed by rewriting published history.
+Formatting and build failures stay out of pre-push; a follow-up commit fixes them, and CI catches them anyway.
 
 Never force-add a gitignored path.
 
