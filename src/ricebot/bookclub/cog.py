@@ -19,6 +19,8 @@ log = logging.getLogger(__name__)
 SILENT = discord.AllowedMentions.none()
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
+NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
+EVENT_NAME = "讀書會"
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 
 
@@ -62,6 +64,40 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             allowed_mentions=SILENT,
         )
 
+    async def _assign_host(self, guild: discord.Guild, session: store.Session) -> int | None:
+        candidates = await self._candidates(guild)
+        if candidates is None:
+            return None
+        host = rotation.next_host(candidates, await store.skipped(self.db, session.id))
+        if host is not None:
+            await store.assign_host(self.db, session.id, host)
+        return host
+
+    async def _add_event(self, guild: discord.Guild, session: store.Session) -> int | None:
+        """Put the session on the guild calendar, bound to the voice channel."""
+        if session.event_id is not None:
+            return session.event_id
+        channel_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
+        channel = guild.get_channel(channel_id) if channel_id is not None else None
+        if not isinstance(channel, discord.VoiceChannel):
+            return None
+        try:
+            event = await guild.create_scheduled_event(
+                name=EVENT_NAME,
+                start_time=session.starts_at,
+                end_time=session.starts_at + schedule.DURATION,
+                entity_type=discord.EntityType.voice,
+                channel=channel,
+                privacy_level=discord.PrivacyLevel.guild_only,
+            )
+        except discord.HTTPException as error:
+            # The session is already scheduled; the event is the extra, so a
+            # failure here must not fail the command.
+            log.warning("no event for %s: %s", session.starts_at, error)
+            return None
+        await store.set_event(self.db, session.id, event.id)
+        return event.id
+
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
     @app_commands.describe(day="YYYY-MM-DD", at="HH:MM，預設 20:00")
@@ -77,23 +113,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         session = await store.ensure(self.db, starts_at)
-        candidates = await self._candidates(interaction.guild)
-        if candidates is None:
-            await interaction.response.send_message(
-                f"已排定 {clock.stamp(starts_at)}，但{NO_ROLE}", ephemeral=True
-            )
-            return
+        host = await self._assign_host(interaction.guild, session)
+        event = await self._add_event(interaction.guild, session)
 
-        host = rotation.next_host(candidates, await store.skipped(self.db, session.id))
-        if host is None:
-            await interaction.response.send_message(
-                f"已排定 {clock.stamp(starts_at)}，但身分組裡沒有可指派的人。", ephemeral=True
-            )
-            return
-
-        await store.assign_host(self.db, session.id, host)
         await interaction.response.send_message(
-            f"已排定 {clock.stamp(starts_at)}，主持人 <@{host}>。公告會在七天前自動發出。",
+            f"已排定 {clock.stamp(starts_at)}\n"
+            f"主持人：{f'<@{host}>' if host else f'未指派（{NO_ROLE}）'}\n"
+            f"活動：{'已建立' if event else NO_VOICE}",
             ephemeral=True,
             allowed_mentions=SILENT,
         )
