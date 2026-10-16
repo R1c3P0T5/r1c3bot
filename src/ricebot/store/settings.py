@@ -9,6 +9,7 @@ class Key(StrEnum):
     """Setting names, so a typo is an AttributeError rather than a silent None."""
 
     BOOKCLUB_CHANNEL = "bookclub_channel_id"
+    BOOKCLUB_ROLE = "bookclub_role_id"
     BOOKCLUB_VOICE_CHANNEL = "bookclub_voice_channel_id"
     CTF_ANNOUNCE_CHANNEL = "ctf_announce_channel_id"
     CTF_CATEGORY = "ctf_category_id"

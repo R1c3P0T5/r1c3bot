@@ -6,6 +6,7 @@ import aiosqlite
 import discord
 from discord.ext import commands
 
+from ricebot.bookclub.cog import BookclubCog
 from ricebot.config import Config
 from ricebot.settings import SettingsCog
 from ricebot.store.db import connect
@@ -41,6 +42,7 @@ class RiceBot(commands.Bot):
         # Runs once between login and the first connect; on_ready repeats.
         self.db = await connect(self.config.database_path)
         await self.add_cog(SettingsCog(self.db))
+        await self.add_cog(BookclubCog(self.db))
         # Cog commands are global; without the copy, sync uploads an empty list.
         self.tree.copy_global_to(guild=self.guild)
         await self.tree.sync(guild=self.guild)
