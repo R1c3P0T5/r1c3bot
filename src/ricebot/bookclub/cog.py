@@ -21,8 +21,9 @@ SILENT = discord.AllowedMentions.none()
 NOTIFY = discord.AllowedMentions(users=True)
 NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`。"
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
-NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
-IN_PAST = "未建立（時間已過，Discord 不接受過去的活動）"
+NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
+IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
+UNASSIGNED = "未指派（還沒設定讀書會身分組，請管理員執行 `/bookclub role`）"
 EVENT_NAME = "讀書會"
 NOT_HOST = "只有本場主持人或管理員可以這麼做。"
 NO_HOST = "這場還沒有指派主持人。"
@@ -157,7 +158,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # The session is already scheduled; the event is the extra, so a
             # failure here must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
-            return f"未建立（{str(error).splitlines()[0][:80]}）"
+            return f"未建立（Discord 回報 {str(error).splitlines()[0][:80]}）"
         await store.set_event(self.db, session.id, event.id)
         return "已建立"
 
@@ -204,7 +205,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.followup.send(
             f"{'這場已經排過，補上缺的部分' if existed else '已排定'}"
             f" {clock.stamp(starts_at)}\n"
-            f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
+            f"主持人：{f'<@{assigned}>' if assigned else UNASSIGNED}\n"
             f"活動：{event_status}",
             allowed_mentions=NOTIFY,
         )
@@ -395,7 +396,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         cancelled = await self._cancel_event(interaction.guild, session)
         await interaction.followup.send(
             f"已取消 {clock.stamp(session.starts_at)}"
-            f"{'，活動也取消了' if cancelled else '（沒有活動可取消）'}。"
+            f"{'，活動也取消了' if cancelled else '（這場本來就沒有建立活動）'}。"
             "這場不算任何人的輪次。",
             allowed_mentions=SILENT,
         )
