@@ -21,6 +21,8 @@ NO_ROLE = "還沒設定讀書會身分組，請管理員執行 `/bookclub role`�
 NO_SESSION = "目前沒有排定的場次，用 `/bookclub new` 排一場。"
 NO_VOICE = "未建立（請用 `/config` 設定讀書會語音頻道）"
 EVENT_NAME = "讀書會"
+NOT_HOST = "只有本場主持人或管理員可以這麼做。"
+NO_HOST = "這場還沒有指派主持人。"
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 
 
@@ -100,10 +102,16 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     @app_commands.command(description="排一場讀書會")
     @app_commands.guild_only()
-    @app_commands.describe(day="YYYY-MM-DD", at="HH:MM，預設 20:00")
+    @app_commands.describe(day="YYYY-MM-DD", at="HH:MM，預設 20:00", host="不給就照輪替指派")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
-    async def new(self, interaction: discord.Interaction, day: str, at: str = "20:00") -> None:
+    async def new(
+        self,
+        interaction: discord.Interaction,
+        day: str,
+        at: str = "20:00",
+        host: discord.Member | None = None,
+    ) -> None:
         try:
             starts_at = schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
         except ValueError:
@@ -113,13 +121,75 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         session = await store.ensure(self.db, starts_at)
-        host = await self._assign_host(interaction.guild, session)
+        if host is not None:
+            # Volunteering spends the turn just as being assigned does.
+            await store.assign_host(self.db, session.id, host.id)
+            assigned: int | None = host.id
+        else:
+            assigned = await self._assign_host(interaction.guild, session)
         event = await self._add_event(interaction.guild, session)
 
         await interaction.response.send_message(
             f"已排定 {clock.stamp(starts_at)}\n"
-            f"主持人：{f'<@{host}>' if host else f'未指派（{NO_ROLE}）'}\n"
+            f"主持人：{f'<@{assigned}>' if assigned else f'未指派（{NO_ROLE}）'}\n"
             f"活動：{'已建立' if event else NO_VOICE}",
+            ephemeral=True,
+            allowed_mentions=SILENT,
+        )
+
+    def _may_manage(self, interaction: discord.Interaction, session: store.Session) -> bool:
+        """The host owns their own session; a manager owns all of them."""
+        return session.host_user_id == interaction.user.id or permissions.manager_only(interaction)
+
+    @app_commands.command(description="改這場的主持人，輪替順位不動")
+    @app_commands.guild_only()
+    async def host(self, interaction: discord.Interaction, user: discord.Member) -> None:
+        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+        if session is None:
+            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            return
+        if not self._may_manage(interaction, session):
+            await interaction.response.send_message(NOT_HOST, ephemeral=True)
+            return
+
+        await store.swap_host(self.db, session.id, user.id)
+        await interaction.response.send_message(
+            f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
+            "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
+            ephemeral=True,
+            allowed_mentions=SILENT,
+        )
+
+    @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
+    @app_commands.guild_only()
+    async def skip(self, interaction: discord.Interaction) -> None:
+        session = await store.next_session(self.db, clock.now() - schedule.DURATION)
+        if session is None:
+            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            return
+        if session.host_user_id is None:
+            await interaction.response.send_message(NO_HOST, ephemeral=True)
+            return
+        if not self._may_manage(interaction, session):
+            await interaction.response.send_message(NOT_HOST, ephemeral=True)
+            return
+
+        declined = session.host_user_id
+        await store.record_skip(self.db, session.id, declined)
+        # _assign_host reads the skip records, so the one just written is
+        # excluded and a second skip cannot come back to the same person.
+        host = await self._assign_host(interaction.guild, session)
+        if host is None:
+            await store.clear_host(self.db, session.id)
+            await interaction.response.send_message(
+                f"<@{declined}> 推掉了這場，但沒有其他人可以接手。"
+                "請管理員用 `/bookclub host` 指派。",
+                ephemeral=True,
+                allowed_mentions=SILENT,
+            )
+            return
+        await interaction.response.send_message(
+            f"<@{declined}> 推掉這場，改由 <@{host}> 主持。順位保留，下一場仍優先。",
             ephemeral=True,
             allowed_mentions=SILENT,
         )

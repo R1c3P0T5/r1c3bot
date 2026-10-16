@@ -50,6 +50,16 @@ async def test_assigning_a_host_spends_their_turn(store) -> None:
     assert (found.host_user_id, found.rotation_user_id) == (A, A)
 
 
+async def test_clearing_the_host_un_spends_the_turn(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+    await bookclub.assign_host(store, created.id, A)
+
+    await bookclub.clear_host(store, created.id)
+
+    # Nobody hosts and nobody's turn was used, so A stays first in line.
+    assert await bookclub.last_hosted(store) == {}
+
+
 async def test_a_swap_leaves_the_spent_turn_alone(store) -> None:
     created = await bookclub.ensure(store, at(16))
     await bookclub.assign_host(store, created.id, A)
