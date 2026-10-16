@@ -257,6 +257,20 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except discord.HTTPException as error:
             log.warning("announcement %s not updated: %s", session.announce_message_id, error)
 
+    async def _update(
+        self, interaction: discord.Interaction, session: store.Session, text: str
+    ) -> None:
+        """Confirm privately, and post the update in the book club channel.
+
+        One destination for everything public, so running a command in another
+        channel does not scatter a session's record across the server.
+        """
+        await interaction.followup.send(text, ephemeral=True, allowed_mentions=SILENT)
+        channel = await self._channel(interaction.guild)
+        if channel is None:
+            return
+        await channel.send(f"{text}{_form_link(channel, session)}", allowed_mentions=NOTIFY)
+
     async def _sync(self, guild: discord.Guild, session: store.Session) -> None:
         """Push the row onto both of its projections, the event and the form.
 
@@ -440,13 +454,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         session = await self._resolve(interaction, when)
         if session is None:
             return
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         await store.swap_host(self.db, session.id, user.id)
         await self._sync(interaction.guild, session)
-        await interaction.followup.send(
+        await self._update(
+            interaction,
+            session,
             f"{clock.stamp(session.starts_at)} 改由 {user.mention} 主持。"
             "輪替順位不動，所以這場仍算原本被指派那位的輪次。",
-            allowed_mentions=NOTIFY,
         )
 
     @app_commands.command(description="推掉這輪換下一位，自己的順位保留")
@@ -460,7 +475,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session.host_user_id is None:
             await interaction.response.send_message(NO_HOST, ephemeral=True)
             return
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         declined = session.host_user_id
         await store.record_skip(self.db, session.id, declined)
         # _assign_host reads the skip records, so the one just written is
@@ -472,7 +487,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         else:
             note = f"改由 <@{host}> 主持。順位保留，下一場仍優先。"
         await self._sync(interaction.guild, session)
-        await interaction.followup.send(f"<@{declined}> 推掉這場，{note}", allowed_mentions=NOTIFY)
+        await self._update(interaction, session, f"<@{declined}> 推掉這場，{note}")
 
     @app_commands.command(description="設定這場的主題")
     @app_commands.guild_only()
@@ -484,12 +499,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         session = await self._resolve(interaction, when)
         if session is None:
             return
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         await store.set_topic(self.db, session.id, text)
         await self._sync(interaction.guild, session)
-        await interaction.followup.send(
-            f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。",
-            allowed_mentions=SILENT,
+        await self._update(
+            interaction, session, f"{clock.stamp(session.starts_at)} 的主題設為「{text}」。"
         )
 
     @app_commands.command(description="取消下一場，連活動一起")
@@ -502,15 +516,16 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         session = await self._resolve(interaction, when)
         if session is None:
             return
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
         await self._sync(interaction.guild, session)
-        await interaction.followup.send(
+        await self._update(
+            interaction,
+            session,
             f"已取消 {clock.stamp(session.starts_at)}"
             f"{'，活動也取消了' if cancelled else '（這場本來就沒有建立活動）'}。"
             "這場不算任何人的輪次。",
-            allowed_mentions=SILENT,
         )
 
     @app_commands.command(description="過去的場次與主題")
