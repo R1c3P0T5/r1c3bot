@@ -214,7 +214,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
             return
 
-        await interaction.response.defer()
+        # Private: the announcement is what tells the channel, so this reply
+        # is for the person who scheduled it.
+        await interaction.response.defer(ephemeral=True)
         # Asked before inserting, so the reply can say what this changed.
         # A cancelled session still holds the slot, so it is put back on
         # rather than reported as already scheduled.
@@ -244,7 +246,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"{lead} {clock.stamp(starts_at)}\n"
             f"主持人：{_mention(assigned, UNASSIGNED)}\n"
             f"活動：{event_status}",
-            allowed_mentions=NOTIFY,
+            ephemeral=True,
+            allowed_mentions=SILENT,
         )
 
     @new.autocomplete("day")
