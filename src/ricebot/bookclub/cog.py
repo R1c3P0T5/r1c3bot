@@ -377,6 +377,26 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             allowed_mentions=SILENT,
         )
 
+    @app_commands.command(description="過去的場次與主題")
+    @app_commands.guild_only()
+    @app_commands.describe(count="要列幾場，預設 10")
+    async def history(
+        self, interaction: discord.Interaction, count: app_commands.Range[int, 1, 20] = 10
+    ) -> None:
+        sessions = await store.history(self.db, clock.now() - schedule.DURATION, count)
+        if not sessions:
+            await interaction.response.send_message("還沒有結束的場次。", ephemeral=True)
+            return
+        lines = []
+        for session in sessions:
+            host = f"<@{session.host_user_id}>" if session.host_user_id else "無主持人"
+            topic = (session.topic or "—")[:40]
+            note = "（已取消）" if session.cancelled_at else ""
+            lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}`　{host}　{topic}{note}")
+        await interaction.response.send_message(
+            "\n".join(lines), ephemeral=True, allowed_mentions=SILENT
+        )
+
     @app_commands.command(description="下一場的時間、主持人與主題")
     @app_commands.guild_only()
     async def next(self, interaction: discord.Interaction) -> None:

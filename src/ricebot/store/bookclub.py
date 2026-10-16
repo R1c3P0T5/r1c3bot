@@ -60,6 +60,15 @@ async def next_session(db: aiosqlite.Connection, not_before: datetime) -> Sessio
     return None if row is None else _session(row)
 
 
+async def history(db: aiosqlite.Connection, before: datetime, limit: int = 10) -> list[Session]:
+    """Finished sessions, most recent first, cancelled ones included."""
+    async with db.execute(
+        "SELECT * FROM sessions WHERE starts_at_utc < ? ORDER BY starts_at_utc DESC LIMIT ?",
+        (before.isoformat(), limit),
+    ) as cursor:
+        return [_session(row) for row in await cursor.fetchall()]
+
+
 async def upcoming(
     db: aiosqlite.Connection, not_before: datetime, limit: int = 25
 ) -> list[Session]:
