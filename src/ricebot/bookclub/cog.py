@@ -259,6 +259,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         content = _announce_text(role_id, session)
         try:
             message = await channel.fetch_message(session.announce_message_id)
+            if session.cancelled_at is None and not any(
+                str(reaction.emoji) == RSVP and reaction.me for reaction in message.reactions
+            ):
+                # Removing it costs the form its only way in, and the fetch
+                # that notices is one we are making anyway.
+                await message.add_reaction(RSVP)
             if message.content == content:
                 return
             await message.edit(content=content, allowed_mentions=NOTIFY_ROLE)
