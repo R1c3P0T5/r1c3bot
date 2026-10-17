@@ -602,7 +602,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if not known:
             await channel.send(
                 f"{member.mention} 也來一起打了！",
-                allowed_mentions=discord.AllowedMentions(users=True),
+                allowed_mentions=PING_USERS,
             )
 
     @commands.Cog.listener()
@@ -626,9 +626,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             log.warning("%s not removed from %s: %s", member.id, channel.id, error)
             return
 
-        await channel.send(
-            f"{member.mention} 不打了 ... 掰掰", allowed_mentions=discord.AllowedMentions.none()
-        )
+        await channel.send(f"{member.mention} 不打了 ... 掰掰", allowed_mentions=SILENT)
 
     async def _archive(self, guild: discord.Guild, contest: store.Contest) -> str | None:
         """Move the channel out of the way and make it read-only.
