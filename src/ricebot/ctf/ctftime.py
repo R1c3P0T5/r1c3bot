@@ -11,20 +11,19 @@ import httpx
 _API = "https://ctftime.org/api/v1/events/"
 # CTFtime asks callers to identify themselves.
 _AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
-# How far ahead to look, which is also how far back a restart reaches: the
-# whole window is asked for every time.
-WINDOW = timedelta(days=21)
-# Exclusive: a weight of 0 means CTFtime has nothing on the organizers.
-MIN_WEIGHT = 0.0
-# Finals and invitationals: nobody joins these by deciding to.
-_CLOSED = "Prequalified"
-# As much of CTFtime's description as a Discord message takes comfortably.
-_BLURB_LIMIT = 1200
-# One CTFtime page. The window has never held anywhere near this many.
-_PAGE_LIMIT = 100
+# How far ahead contests are listed.
+LOOKAHEAD = timedelta(days=21)
+# A contest must weigh strictly more; 0 means CTFtime has no weight for it.
+WEIGHT_FLOOR = 0.0
+# Finals: only the teams that qualified enter.
+_PREQUALIFIED = "Prequalified"
+# The longest description kept for a Discord message.
+_DESCRIPTION_LIMIT = 1200
+# Contests asked for per call; the window is never paged.
+_FETCH_LIMIT = 100
 
-# Discord takes 100 characters; the rest leaves room for a suffix.
-_NAME_LIMIT = 90
+# Discord caps a channel name at 100 characters.
+_SLUG_LIMIT = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +53,7 @@ def contest(raw: Mapping[str, Any]) -> Contest:
     return Contest(
         id=raw["id"],
         title=raw["title"],
-        # The organiser's own site is blank for some entries; the CTFtime page
-        # never is.
+        # Some entries leave the organizer's own site blank.
         url=raw.get("url") or raw["ctftime_url"],
         page=raw["ctftime_url"],
         starts_at=datetime.fromisoformat(raw["start"]),
@@ -65,10 +63,10 @@ def contest(raw: Mapping[str, Any]) -> Contest:
         restrictions=raw.get("restrictions") or "",
         onsite=bool(raw.get("onsite")),
         location=raw.get("location") or "",
-        # Display only, so the names are joined here rather than in a table.
+        # Display only, so one string beats a table.
         organizers="、".join(o["name"] for o in raw.get("organizers") or ()),
         participants=raw.get("participants") or 0,
-        description=shorten(raw.get("description") or "", _BLURB_LIMIT),
+        description=shorten(raw.get("description") or "", _DESCRIPTION_LIMIT),
     )
 
 
@@ -93,15 +91,15 @@ def slug(title: str, fallback: str) -> str:
     fallback covers a title that is all punctuation.
     """
     runs = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", title.lower())
-    return runs.strip("-")[:_NAME_LIMIT].strip("-") or fallback
+    return runs.strip("-")[:_SLUG_LIMIT].strip("-") or fallback
 
 
 def wanted(
     contests: Iterable[Contest],
     *,
     now: datetime,
-    within: timedelta = WINDOW,
-    min_weight: float = MIN_WEIGHT,
+    within: timedelta = LOOKAHEAD,
+    weight_floor: float = WEIGHT_FLOOR,
 ) -> list[Contest]:
     """The enterable contests starting inside the window, earliest first.
 
@@ -114,8 +112,8 @@ def wanted(
             found
             for found in contests
             if not found.onsite
-            and found.weight > min_weight
-            and found.restrictions != _CLOSED
+            and found.weight > weight_floor
+            and found.restrictions != _PREQUALIFIED
             and now < found.starts_at <= now + within
         ),
         key=lambda found: (found.starts_at, found.id),
@@ -123,13 +121,13 @@ def wanted(
 
 
 async def upcoming(
-    client: httpx.AsyncClient, *, now: datetime, within: timedelta = WINDOW
+    client: httpx.AsyncClient, *, now: datetime, within: timedelta = LOOKAHEAD
 ) -> list[Contest]:
     """Everything CTFtime lists for the window, unfiltered."""
     response = await client.get(
         _API,
         params={
-            "limit": _PAGE_LIMIT,
+            "limit": _FETCH_LIMIT,
             "start": int(now.timestamp()),
             "finish": int((now + within).timestamp()),
         },

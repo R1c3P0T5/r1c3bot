@@ -94,7 +94,7 @@ def test_an_unrated_contest_is_left_out() -> None:
 def test_the_threshold_can_be_raised_and_is_exclusive() -> None:
     at_it, above_it = listed(20, weight=25.0), listed(21, weight=25.01)
 
-    assert ctftime.wanted([at_it, above_it], now=NOW, min_weight=25.0) == [above_it]
+    assert ctftime.wanted([at_it, above_it], now=NOW, weight_floor=25.0) == [above_it]
 
 
 def test_an_onsite_contest_is_not_for_us() -> None:
