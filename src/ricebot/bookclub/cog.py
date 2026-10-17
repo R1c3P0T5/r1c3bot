@@ -535,6 +535,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         event = await self._event(guild, session)
         if event is None:
             return
+        if event.status is not discord.EventStatus.scheduled:
+            # Discord refuses edits to an event that has started.
+            return
         name, description = _event_name(session), _event_description(guild, session)
         ends_at = session.starts_at + schedule.DURATION
         if (event.name, event.description or "", event.start_time, event.end_time) == (
