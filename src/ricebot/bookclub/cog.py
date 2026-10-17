@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import audit, clock, permissions, settings
+from ricebot import audit, clock, permissions, settings, sync
 from ricebot.bookclub import rotation, schedule
 from ricebot.store import bookclub as store
 from ricebot.store import settings as settings_store
@@ -357,25 +357,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
-        content = _announce_text(role_id, session)
-        try:
-            message = await channel.fetch_message(session.announce_message_id)
-            if session.cancelled_at is None and not any(
-                str(reaction.emoji) == RSVP and reaction.me for reaction in message.reactions
-            ):
-                # The reaction is the only way to sign up, so put it back.
-                await message.add_reaction(RSVP)
-            if message.content == content:
-                return
-            await message.edit(content=content, allowed_mentions=PING_ROLE)
-        except discord.NotFound:
-            # Deleted by hand; forgetting it lets a new one be posted.
-            log.info(
-                "announcement %s is gone; it will be posted again", session.announce_message_id
-            )
+        if not await sync.message(
+            channel,
+            session.announce_message_id,
+            content=_announce_text(role_id, session),
+            mentions=PING_ROLE,
+            rsvp=RSVP if session.cancelled_at is None else None,
+        ):
             await store.set_announce(self.db, session.id, None)
-        except discord.HTTPException as error:
-            log.warning("announcement %s not updated: %s", session.announce_message_id, error)
 
     async def _notify(
         self, interaction: discord.Interaction, session: store.Session, text: str
@@ -532,31 +521,17 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
         """Push the host, topic and time onto the event; the row must be current."""
-        event = await self._event(guild, session)
-        if event is None:
+        if session.event_id is None:
             return
-        if event.status is not discord.EventStatus.scheduled:
-            # Discord refuses edits to an event that has started.
-            return
-        name, description = _event_name(session), _event_description(guild, session)
-        ends_at = session.starts_at + schedule.DURATION
-        if (event.name, event.description or "", event.start_time, event.end_time) == (
-            name,
-            description,
-            session.starts_at,
-            ends_at,
+        if not await sync.event(
+            guild,
+            session.event_id,
+            name=_event_name(session),
+            description=_event_description(guild, session),
+            starts_at=session.starts_at,
+            ends_at=session.starts_at + schedule.DURATION,
         ):
-            # The loop syncs every pass, so an unchanged event costs no request.
-            return
-        try:
-            await event.edit(
-                name=name,
-                description=description,
-                start_time=session.starts_at,
-                end_time=ends_at,
-            )
-        except discord.HTTPException as error:
-            log.warning("event %s not updated: %s", session.event_id, error)
+            await store.set_event(self.db, session.id, None)
 
     async def _cancel_event(self, guild: discord.Guild, session: store.Session) -> bool:
         event = await self._event(guild, session)

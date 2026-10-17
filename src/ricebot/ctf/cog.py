@@ -9,7 +9,7 @@ import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import clock, permissions, settings
+from ricebot import clock, permissions, settings, sync
 from ricebot.ctf import ctftime
 from ricebot.store import ctf as store
 from ricebot.store import settings as settings_store
@@ -424,22 +424,14 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if channel is None:
             return
 
-        content = _announce_text(contest)
-        try:
-            message = await channel.fetch_message(contest.announce_message_id)
-            if contest.archived_at is None and not any(
-                str(reaction.emoji) == RSVP and reaction.me for reaction in message.reactions
-            ):
-                await message.add_reaction(RSVP)
-            if message.content != content:
-                await message.edit(content=content, allowed_mentions=SILENT)
-        except discord.NotFound:
-            log.info(
-                "announcement %s is gone; it will be posted again", contest.announce_message_id
-            )
+        if not await sync.message(
+            channel,
+            contest.announce_message_id,
+            content=_announce_text(contest),
+            mentions=SILENT,
+            rsvp=RSVP if contest.archived_at is None else None,
+        ):
             await store.set_announce(self.db, contest.ctftime_id, None)
-        except discord.HTTPException as error:
-            log.warning("announcement %s not updated: %s", contest.announce_message_id, error)
 
     async def _add_event(self, guild: discord.Guild, contest: store.Contest) -> None:
         """Put the contest on the guild calendar, whether or not anyone joins."""
@@ -468,41 +460,15 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         """Push CTFtime's times onto the event, and forget one that is gone."""
         if contest.guild_event_id is None:
             return
-        try:
-            scheduled = await guild.fetch_scheduled_event(contest.guild_event_id)
-        except discord.NotFound:
-            log.info("event %s is gone; it will be created again", contest.guild_event_id)
+        if not await sync.event(
+            guild,
+            contest.guild_event_id,
+            name=contest.title[:100],
+            description=_event_description(contest),
+            starts_at=contest.starts_at,
+            ends_at=contest.finishes_at,
+        ):
             await store.set_guild_event(self.db, contest.ctftime_id, None)
-            return
-        except discord.HTTPException as error:
-            log.warning("event %s not fetched: %s", contest.guild_event_id, error)
-            return
-        if scheduled.status in (discord.EventStatus.canceled, discord.EventStatus.completed):
-            # Discord has no way to reopen an event, so this one is spent.
-            await store.set_guild_event(self.db, contest.ctftime_id, None)
-            return
-        if scheduled.status is not discord.EventStatus.scheduled:
-            # Discord refuses edits to an event that has started.
-            return
-
-        description = _event_description(contest)
-        if (
-            scheduled.name,
-            scheduled.description or "",
-            scheduled.start_time,
-            scheduled.end_time,
-        ) == (contest.title[:100], description, contest.starts_at, contest.finishes_at):
-            return
-
-        try:
-            await scheduled.edit(
-                name=contest.title[:100],
-                description=description,
-                start_time=contest.starts_at,
-                end_time=contest.finishes_at,
-            )
-        except discord.HTTPException as error:
-            log.warning("event %s not updated: %s", contest.guild_event_id, error)
 
     async def _rsvp_failed(self, guild: discord.Guild, member: discord.Member, reason: str) -> None:
         """Say that a 🚩 did not get the member in; a reaction has no reply of its own."""
