@@ -10,7 +10,7 @@ r1c3p0t5 社群經營用的 Discord bot。
 - `/bookclub skip [when]` — 這場先過，下一場仍然優先
 - `/bookclub topic <text> [when]` — 設定這場的主題
 - `/bookclub cancel [when]` — 取消這場，連活動一起撤掉
-- `/bookclub next` — 下一場的時間、主持人與主題
+- `/bookclub next` — 下一場的時間、主持人、主題與報名人數
 - `/bookclub history [count]` — 過去的場次與主題
 - `/bookclub role <role>` — 設定讀書會身分組：輪替名單與提醒的對象
 - `/ctf upcoming` — 接下來追蹤中的比賽
