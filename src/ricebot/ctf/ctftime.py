@@ -120,6 +120,15 @@ def wanted(
     )
 
 
+async def one(client: httpx.AsyncClient, ctftime_id: int) -> Contest | None:
+    """One contest by its CTFtime id, or None when CTFtime lists no such event."""
+    response = await client.get(f"{_API}{ctftime_id}/", headers={"User-Agent": _AGENT})
+    if response.status_code == httpx.codes.NOT_FOUND:
+        return None
+    response.raise_for_status()
+    return contest(response.json())
+
+
 async def upcoming(
     client: httpx.AsyncClient, *, now: datetime, within: timedelta = LOOKAHEAD
 ) -> list[Contest]:
