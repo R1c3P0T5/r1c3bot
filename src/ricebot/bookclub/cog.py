@@ -663,18 +663,23 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             "\n".join(lines), ephemeral=True, allowed_mentions=SILENT
         )
 
-    @app_commands.command(description="下一場的時間、主持人與主題")
+    @app_commands.command(description="下一場的時間、主持人、主題與報名人數")
     @app_commands.guild_only()
     async def next(self, interaction: discord.Interaction) -> None:
         session = await self._target(None)
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-        host = _mention(session.host_user_id, UNASSIGNED)
-        await interaction.response.send_message(
+        # Deferred: the sign-up list is a fetch of the announcement.
+        await interaction.response.defer(ephemeral=True)
+        channel = await self._channel(interaction.guild)
+        signed_up = [] if channel is None else await self._attendees(channel, session)
+        link = "" if channel is None else _announce_link(channel, session)
+        await interaction.followup.send(
             f"{clock.stamp(session.starts_at)}（{clock.stamp(session.starts_at, 'R')}）\n"
-            f"主持人：{host}\n"
-            f"主題：{session.topic or '未設定'}",
+            f"主持人：{_mention(session.host_user_id, UNASSIGNED)}\n"
+            f"主題：{session.topic or '未設定'}\n"
+            f"報名：{len(signed_up)} 人{link}",
             ephemeral=True,
             allowed_mentions=SILENT,
         )
