@@ -687,12 +687,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
         await self._sync(interaction.guild, session)
+        note = "，活動一起撤掉" if cancelled else "（本來就沒有活動）"
         await self._notify(
             interaction,
             session,
-            f"{clock.stamp(session.starts_at)} 這場取消了"
-            f"{'，活動一起撤掉' if cancelled else '（本來就沒有活動）'}。\n"
-            "-# 這場不算任何人輪到。",
+            f"{clock.stamp(session.starts_at)} 這場取消了{note}。\n-# 這場不算任何人輪到。",
         )
 
     @app_commands.command(description="過去的場次與主題")
