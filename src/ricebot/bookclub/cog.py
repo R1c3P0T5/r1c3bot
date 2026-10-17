@@ -524,16 +524,27 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return session
 
     async def _sync_event(self, guild: discord.Guild, session: store.Session) -> None:
-        """Push the host and topic onto the event; the row must be current."""
+        """Push the host, topic and time onto the event; the row must be current."""
         event = await self._event(guild, session)
         if event is None:
             return
         name, description = _event_name(session), _event_description(guild, session)
-        if (event.name, event.description or "") == (name, description):
+        ends_at = session.starts_at + schedule.DURATION
+        if (event.name, event.description or "", event.start_time, event.end_time) == (
+            name,
+            description,
+            session.starts_at,
+            ends_at,
+        ):
             # The loop syncs every pass, so an unchanged event costs no request.
             return
         try:
-            await event.edit(name=name, description=description)
+            await event.edit(
+                name=name,
+                description=description,
+                start_time=session.starts_at,
+                end_time=ends_at,
+            )
         except discord.HTTPException as error:
             log.warning("event %s not updated: %s", session.event_id, error)
 
