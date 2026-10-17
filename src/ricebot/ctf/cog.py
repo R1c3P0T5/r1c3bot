@@ -19,7 +19,7 @@ log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
 # A member waiting to be let in is worth a notification.
-PING_USERS = discord.AllowedMentions(users=True)
+PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
 # Reacting with this emoji opens the discussion channel.
 RSVP = "🚩"
 # CTFtime's restriction values. Open is not printed, and Casual marks a
