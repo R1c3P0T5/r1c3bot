@@ -161,9 +161,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return [
             rotation.Candidate(
                 member.id,
-                # joined_at is None only for a member the gateway sent without
-                # one; treating that as "just joined" puts them last.
-                joined_at=member.joined_at or clock.now(),
+                joined_at=member.joined_at,
                 last_hosted=hosted.get(member.id),
             )
             for member in role.members

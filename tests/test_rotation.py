@@ -53,6 +53,18 @@ def test_everyone_skipping_leaves_no_host() -> None:
     assert next_host(candidates, skipped=[A]) is None
 
 
+def test_a_member_with_no_join_date_waits_behind_one_who_has_a_date() -> None:
+    # The gateway sends some members without joined_at; B must not jump the
+    # queue ahead of A, who has waited since a date we know.
+    candidates = [Candidate(B), Candidate(A, joined_at=at(10))]
+
+    assert next_host(candidates) == A
+
+
+def test_two_members_with_no_join_date_are_ordered_by_id() -> None:
+    assert next_host([Candidate(B), Candidate(A)]) == A
+
+
 def test_a_tie_is_broken_by_user_id() -> None:
     candidates = [Candidate(B, joined_at=at(1)), Candidate(A, joined_at=at(1))]
 
