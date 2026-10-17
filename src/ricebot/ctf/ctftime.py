@@ -71,7 +71,8 @@ def shorten(text: str, limit: int) -> str:
     tidy = re.sub(r"\n{3,}", "\n\n", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
     if len(tidy) <= limit:
         return tidy
-    cut = tidy[:limit]
+    # The ellipsis counts towards the limit, so the body gets one less.
+    cut = tidy[: max(limit - 1, 0)]
     edge = max(cut.rfind("\n"), cut.rfind(" "))
     return (cut[:edge] if edge > limit // 2 else cut).rstrip() + "…"
 

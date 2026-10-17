@@ -55,6 +55,7 @@ def test_a_long_blurb_is_cut_down_for_the_guild_event() -> None:
     # to the facts and the links rather than the other way round.
     described = messages.event_description(contest(description="字" * 5000))
 
+    assert len(described) <= messages.EVENT_LIMIT
     assert described.startswith("線上 Jeopardy")
     assert described.endswith("…")
 
