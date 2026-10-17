@@ -17,7 +17,7 @@ from ricebot.store.settings import Key
 log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
-# The announcement pings the role; a host change pings the two members in it.
+# The announcement pings the role; everything else pings only who it names.
 PING_ROLE = discord.AllowedMentions(roles=True, users=True)
 PING_USERS = discord.AllowedMentions(users=True)
 NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
@@ -82,7 +82,7 @@ def _announce_link(channel: discord.TextChannel, session: store.Session) -> str:
 
 
 def _reason(error: discord.HTTPException) -> str:
-    """Discord's complaint, first line only: it answers with a form dump."""
+    """The first line of a Discord error; the rest is a JSON body."""
     return str(error).splitlines()[0][:80]
 
 
@@ -137,8 +137,7 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
         await interaction.response.defer(ephemeral=True)
         host, topic = self.host.component.values[0], self.topic.component.value
         await self.cog.schedule_session(interaction, starts_at, host, topic)
-        # A button is not an app command, so the audit listener never sees it;
-        # this is the one path to a session that needs no permission.
+        # The audit listener sees only app commands, so the button records itself.
         await audit.record(
             self.cog.db,
             interaction,
@@ -180,8 +179,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     async def cog_load(self) -> None:
         self._tick.start()
-        # Registered by custom_id, so buttons on messages from before this
-        # process started keep working.
+        # Registered by custom_id, so buttons from an earlier process keep working.
         self.bot.add_view(ScheduleView(self))
 
     async def cog_unload(self) -> None:
@@ -267,8 +265,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session.event_id is not None:
             return EVENT_KEPT
         if session.starts_at <= clock.now():
-            # Discord refuses an event in the past, and we can tell without
-            # spending a request to be told.
+            # Discord refuses an event in the past.
             return EVENT_IN_PAST
         channel = await settings.channel(
             self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
@@ -286,8 +283,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
                 privacy_level=discord.PrivacyLevel.guild_only,
             )
         except discord.HTTPException as error:
-            # The session is already scheduled; the event is the extra, so a
-            # failure here must not fail the command.
+            # The session is already saved, so a failed event must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
             return f"未建立（Discord 回報 {_reason(error)}）"
         await store.set_event(self.db, session.id, event.id)
@@ -313,8 +309,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except discord.HTTPException as error:
             log.warning("no announcement for %s: %s", session.starts_at, error)
             return f"未發布（Discord 回報 {_reason(error)}）"
-        # Recorded before the reaction, so failing to add it cannot cost the
-        # message and leave the next pass posting a second one.
+        # Recorded before reacting, so a failed reaction cannot cause a second post.
         await store.set_announce(self.db, session.id, message.id)
         log.info("announcement %s posted for %s", message.id, session.starts_at)
         try:
@@ -341,8 +336,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             if session.cancelled_at is None and not any(
                 str(reaction.emoji) == RSVP and reaction.me for reaction in message.reactions
             ):
-                # Removing it costs the form its only way in, and the fetch
-                # that notices is one we are making anyway.
+                # The reaction is the only way to sign up, so put it back.
                 await message.add_reaction(RSVP)
             if message.content == content:
                 return
@@ -406,8 +400,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
             return
 
-        # Private: the announcement is what tells the channel, so this reply
-        # is for the person who scheduled it.
+        # Ephemeral: the announcement is what tells the channel.
         await interaction.response.defer(ephemeral=True)
         await self.schedule_session(interaction, starts_at, host, topic)
 
@@ -433,9 +426,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_topic(self.db, session.id, topic)
         # Volunteering spends the turn just as being assigned does.
         await store.assign_host(self.db, session.id, host.id)
-        # Synced first: a reopened session carries projections from before the
-        # cancellation, and this forgets the ones that are gone so the two
-        # calls below can replace them.
+        # Sync first: projections lost since a cancellation are forgotten here,
+        # so the two calls below put them back.
         await self._sync(interaction.guild, session)
         event_status = await self._add_event(interaction.guild, session)
         announce_status = await self._add_announce(interaction.guild, session)
@@ -466,13 +458,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _time_choices(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        # Suggestions, not a closed set: a time typed by hand still works.
+        # Any typed time works; these are suggestions.
         return [app_commands.Choice(name=at, value=at) for at in TIMES if current in at]
 
     async def _session_choices(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        """The upcoming sessions, for the `when` option of every command."""
+        """The upcoming sessions, for the `when` option."""
         sessions = await store.upcoming(self.db, self._cutoff())
         return [
             app_commands.Choice(
@@ -531,8 +523,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if event is None:
             return False
         try:
-            # Cancelled rather than deleted: anyone who marked interest gets a
-            # notice, and here the session really is off.
+            # Cancelling notifies everyone who marked interest.
             await event.cancel()
         except discord.HTTPException as error:
             log.warning("event %s not cancelled: %s", session.event_id, error)
@@ -576,8 +567,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.response.defer(ephemeral=True)
         declined = session.host_user_id
         await store.record_skip(self.db, session.id, declined)
-        # _assign_host reads the skip records, so the one just written is
-        # excluded and a second skip cannot come back to the same person.
+        # Written first: _assign_host passes over everyone recorded as skipped.
         host = await self._assign_host(interaction.guild, session)
         if host is None:
             await store.clear_host(self.db, session.id)

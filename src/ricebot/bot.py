@@ -59,7 +59,7 @@ class RiceBot(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("logged in as %s (id %s)", self.user, self.user and self.user.id)
-        # Logging in says nothing about membership, and joining nothing is silent.
+        # Login succeeds even when the bot is in no guild, so check membership.
         guild = self.get_guild(self.config.guild_id)
         if guild is None:
             log.error(

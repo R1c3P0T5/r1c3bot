@@ -6,7 +6,7 @@ import aiosqlite
 
 
 class Key(StrEnum):
-    """Setting names, so a typo is an AttributeError rather than a silent None."""
+    """Setting names; a typo then raises AttributeError."""
 
     BOOKCLUB_CHANNEL = "bookclub_channel_id"
     BOOKCLUB_ROLE = "bookclub_role_id"
@@ -32,7 +32,7 @@ async def put(db: aiosqlite.Connection, key: Key, value: str) -> None:
 
 
 async def get_id(db: aiosqlite.Connection, key: Key) -> int | None:
-    """Return the id as an int; as text it compares unequal to a Discord id."""
+    """The setting as an int id, or None when unset."""
     value = await get(db, key)
     return None if value is None else int(value)
 

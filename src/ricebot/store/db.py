@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 MIGRATIONS = resources.files("ricebot.store") / "migrations"
 
-# The filename is interpolated into SQL below, so this is also the guard.
+# The filename is interpolated into SQL below, so it must match this.
 _NAME = re.compile(r"\A\d{3}_[a-z0-9_]+\.sql\Z")
 
 

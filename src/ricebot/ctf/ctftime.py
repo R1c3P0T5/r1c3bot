@@ -22,7 +22,7 @@ _DESCRIPTION_LIMIT = 1200
 # Contests asked for per call; the window is never paged.
 _FETCH_LIMIT = 100
 
-# Discord caps a channel name at 100 characters.
+# Under Discord's 100-character cap for a channel name.
 _SLUG_LIMIT = 90
 
 

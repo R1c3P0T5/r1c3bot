@@ -25,8 +25,7 @@ class Reminder(StrEnum):
     FOLLOWUP = "followup"
 
 
-# Offset from the session start; the follow-up lands after it ends. The
-# sign-up form is not here: it is posted when the session is scheduled.
+# Offset from the session start; the follow-up lands after it ends.
 OFFSETS: Mapping[Reminder, timedelta] = {
     Reminder.REMIND: -timedelta(days=1),
     Reminder.STARTING: -timedelta(hours=1),

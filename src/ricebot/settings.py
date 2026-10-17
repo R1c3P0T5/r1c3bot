@@ -1,4 +1,4 @@
-"""The settings: the /config panel, and reading what it set."""
+"""The /config panel, and the lookup of the channels it sets."""
 
 import logging
 
@@ -17,7 +17,7 @@ _TEXT = [discord.ChannelType.text]
 _VOICE = [discord.ChannelType.voice]
 _CATEGORY = [discord.ChannelType.category]
 
-# One select per action row, five rows per message: this list is full.
+# A message holds five action rows of one select each, so this list is full.
 _FIELDS: list[tuple[str, Key, list[discord.ChannelType]]] = [
     ("讀書會公告頻道", Key.BOOKCLUB_CHANNEL, _TEXT),
     ("讀書會語音頻道", Key.BOOKCLUB_VOICE_CHANNEL, _VOICE),
@@ -30,7 +30,7 @@ _FIELDS: list[tuple[str, Key, list[discord.ChannelType]]] = [
 async def channel[T: discord.abc.GuildChannel](
     db: aiosqlite.Connection, guild: discord.Guild, key: Key, kind: type[T]
 ) -> T | None:
-    """The channel a setting points at, or None when it is unset or gone."""
+    """The channel a setting points at, or None when it is unset, gone or another kind."""
     channel_id = await store.get_id(db, key)
     found = guild.get_channel(channel_id) if channel_id is not None else None
     if not isinstance(found, kind):
@@ -70,9 +70,9 @@ class _Picker(discord.ui.ChannelSelect):
         self._key = key
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        channel = self.values[0]
-        await store.put_id(self._db, self._key, channel.id)
-        log.info("%s set %s to %s", interaction.user, self._key.value, channel.id)
+        chosen = self.values[0]
+        await store.put_id(self._db, self._key, chosen.id)
+        log.info("%s set %s to %s", interaction.user, self._key.value, chosen.id)
         await interaction.response.edit_message(content=await _summary(self._db), view=self.view)
 
 
@@ -80,7 +80,7 @@ class ConfigView(discord.ui.View):
     """The panel itself, ephemeral and short-lived."""
 
     def __init__(self, db: aiosqlite.Connection) -> None:
-        # Not persistent: the panel dies with its ephemeral token, as it should.
+        # Not persistent: the panel lives as long as its ephemeral message.
         super().__init__(timeout=300)
         for label, key, channel_types in _FIELDS:
             self.add_item(_Picker(db, label, key, channel_types))
