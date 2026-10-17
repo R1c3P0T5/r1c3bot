@@ -683,6 +683,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @tasks.loop(minutes=10)
     async def _tick(self) -> None:
         """Keep the events in step with the database and send what is due."""
+        try:
+            await self._pass()
+        except Exception:
+            # A failure here would stop the loop for good.
+            log.exception("the bookclub pass failed")
+
+    async def _pass(self) -> None:
         guild = self.bot.get_guild(self.guild_id)
         if guild is None:
             return
