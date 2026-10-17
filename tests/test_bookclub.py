@@ -233,3 +233,24 @@ async def test_skips_are_scoped_to_their_session(store) -> None:
     await bookclub.record_skip(store, first.id, A)
 
     assert await bookclub.skipped(store, second.id) == set()
+
+
+async def test_a_moved_session_keeps_its_row(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+    await bookclub.set_topic(store, created.id, "SQLMap Essentials")
+
+    await bookclub.reschedule(store, created.id, at(23))
+
+    assert await bookclub.session(store, at(16)) is None
+    moved = await bookclub.session(store, at(23))
+    assert moved is not None
+    assert (moved.id, moved.topic) == (created.id, "SQLMap Essentials")
+
+
+async def test_a_moved_session_forgets_its_reminders(store) -> None:
+    created = await bookclub.ensure(store, at(16))
+    await bookclub.mark_reminder(store, created.id, Reminder.REMIND, at(15))
+
+    await bookclub.reschedule(store, created.id, at(23))
+
+    assert await bookclub.mark_reminder(store, created.id, Reminder.REMIND, at(22)) is True

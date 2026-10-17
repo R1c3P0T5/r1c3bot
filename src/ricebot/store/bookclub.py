@@ -125,6 +125,20 @@ async def reopen(db: aiosqlite.Connection, session_id: int) -> None:
     await db.commit()
 
 
+async def reschedule(db: aiosqlite.Connection, session_id: int, starts_at: datetime) -> None:
+    """Move the session, and forget the reminders sent for where it was.
+
+    Every reminder says when the session starts, so none of them survives the
+    move. due() skips a reminder its successor has overtaken, so forgetting
+    them cannot replay the chain.
+    """
+    await db.execute(
+        "UPDATE sessions SET starts_at_utc = ? WHERE id = ?", (starts_at.isoformat(), session_id)
+    )
+    await db.execute("DELETE FROM bookclub_reminders WHERE session_id = ?", (session_id,))
+    await db.commit()
+
+
 async def set_event(db: aiosqlite.Connection, session_id: int, event_id: int | None) -> None:
     """Record the event, or forget it with None so a later command recreates it."""
     await db.execute("UPDATE sessions SET event_id = ? WHERE id = ?", (event_id, session_id))
