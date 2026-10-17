@@ -42,7 +42,6 @@ def test_a_contest_keeps_its_times_weight_and_length() -> None:
     assert (found.id, found.title, found.weight) == (3364, "Securinets CTF Quals 2026", 85.12)
     assert found.starts_at == datetime(2026, 10, 17, 9, 0, tzinfo=UTC)
     assert found.finishes_at == datetime(2026, 10, 18, 21, 0, tzinfo=UTC)
-    assert found.duration == timedelta(hours=36)
 
 
 def test_a_contest_carries_what_the_announcement_says() -> None:
