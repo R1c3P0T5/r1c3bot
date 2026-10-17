@@ -154,6 +154,7 @@ async def record_skip(db: aiosqlite.Connection, session_id: int, user_id: int) -
 
 
 async def skipped(db: aiosqlite.Connection, session_id: int) -> set[int]:
+    """Who declined this session, so the rotation passes over them."""
     async with db.execute(
         "SELECT user_id FROM session_skips WHERE session_id = ?", (session_id,)
     ) as cursor:

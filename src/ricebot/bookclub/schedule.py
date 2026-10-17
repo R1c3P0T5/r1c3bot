@@ -16,9 +16,8 @@ CATCH_UP = timedelta(days=1)
 class Reminder(StrEnum):
     """The kinds recorded in bookclub_reminders.
 
-    Named by purpose, not by offset: the kind is part of the idempotence key,
-    so a name carrying its own timing could not be retimed without the records
-    of what was already sent ceasing to match.
+    The kind is part of the idempotence key, so each name says what the
+    reminder is for and stays valid when its timing changes.
     """
 
     REMIND = "remind"
@@ -70,9 +69,9 @@ def reminders(start: datetime) -> dict[Reminder, datetime]:
 def due(start: datetime, now: datetime) -> list[Reminder]:
     """The reminders that have come round and not yet gone stale, in order.
 
-    Each one is superseded by the next, so a tick arriving after the next is
-    due skips it: an outage must not replay a session's whole run of reminders
-    at once. The last one holds for the catch-up window instead.
+    Each one supersedes the one before, so a tick arriving late skips what it
+    missed instead of replaying the whole run. The last one holds for the
+    catch-up window.
     """
     times = reminders(start)
     order = sorted(times, key=times.__getitem__)

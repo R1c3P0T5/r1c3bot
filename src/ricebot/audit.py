@@ -1,4 +1,4 @@
-"""The audit log: a listener that records every completed command."""
+"""The audit log: who ran which command, and what it changed."""
 
 import aiosqlite
 import discord

@@ -1,4 +1,4 @@
-"""Authorisation for the command tree."""
+"""Authorization for the command tree."""
 
 import logging
 

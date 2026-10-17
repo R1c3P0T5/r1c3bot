@@ -9,15 +9,12 @@ from typing import Any
 import httpx
 
 _API = "https://ctftime.org/api/v1/events/"
-# CTFtime asks callers to identify themselves, and the default agent is shared
-# by every httpx caller in the world.
+# CTFtime asks callers to identify themselves.
 _AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
 # How far ahead to look, which is also how far back a restart reaches: the
 # whole window is asked for every time.
 WINDOW = timedelta(days=21)
-# Exclusive, so the default keeps every rated contest and drops the unrated
-# ones: a weight of 0 means CTFtime has nothing on the organisers at all, and
-# that is twenty of the next thirty-six.
+# Exclusive: a weight of 0 means CTFtime has nothing on the organizers.
 MIN_WEIGHT = 0.0
 # Finals and invitationals: nobody joins these by deciding to.
 _CLOSED = "Prequalified"
@@ -76,11 +73,10 @@ def contest(raw: Mapping[str, Any]) -> Contest:
 
 
 def shorten(text: str, limit: int) -> str:
-    """CTFtime's description, tidied and cut to length.
+    """Text with CTFtime's CRLF and blank runs tidied, cut to length.
 
-    Its text is CRLF with long runs of blank lines, and a cut lands on a line
-    or word break where there is one: a description sliced mid-word reads like
-    a bug rather than an abbreviation.
+    A cut lands on a line or word break where there is one, so the result
+    reads as an abbreviation.
     """
     tidy = re.sub(r"\n{3,}", "\n\n", text.replace("\r\n", "\n").replace("\r", "\n")).strip()
     if len(tidy) <= limit:
@@ -91,11 +87,10 @@ def shorten(text: str, limit: int) -> str:
 
 
 def slug(title: str, fallback: str) -> str:
-    """A channel name for the contest: Discord lowercases and rewrites the rest.
+    """A channel name for the contest, in the form Discord would rewrite it to.
 
-    Doing it here rather than letting Discord do it keeps the stored name and
-    the real one the same, and the fallback covers a title that is all
-    punctuation once the separators collapse.
+    Naming it here keeps the stored name and the real one the same. The
+    fallback covers a title that is all punctuation.
     """
     runs = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", title.lower())
     return runs.strip("-")[:_NAME_LIMIT].strip("-") or fallback
@@ -110,13 +105,9 @@ def wanted(
 ) -> list[Contest]:
     """The enterable contests starting inside the window, earliest first.
 
-    Asked of the whole window every time rather than of what has appeared
-    since the last look: there is then no cursor to be stale after an outage,
-    and a contest added to CTFtime late is picked up like any other.
-
-    Onsite contests are left out: a guild holds 100 scheduled events and a
-    busy three weeks lists two dozen contests, so the calendar is worth
-    spending only on the ones anyone here can actually enter from home.
+    The whole window is asked for every time, so no cursor can go stale after
+    an outage and a contest added late is picked up like any other. Onsite
+    contests are left out to spare the guild's 100-event calendar.
     """
     return sorted(
         (

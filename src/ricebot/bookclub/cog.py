@@ -41,8 +41,7 @@ RSVP = "🚩"
 # Discord has no date picker, so the list stands in for one: 25 consecutive
 # days, which is also the most it will accept in one autocomplete reply.
 DAY_SPAN = 25
-# Half hours from morning to the usual start. 08:00 to 20:00 inclusive is
-# exactly 25 entries, which is also Discord's limit for an autocomplete reply.
+# Half hours from 08:00 to the usual 20:00 start, 25 of them.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 # Discord sends only the custom_id back, so a button that outlives the
@@ -85,7 +84,7 @@ def _form_link(channel: discord.TextChannel, session: store.Session) -> str:
 
 
 def _event_name(session: store.Session) -> str:
-    # The event name is capped at 100 characters, so a long topic is trimmed.
+    # Discord caps an event name at 100 characters.
     return f"{EVENT_NAME}：{session.topic[:80]}" if session.topic else EVENT_NAME
 
 
@@ -235,9 +234,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     ) -> discord.ScheduledEvent | None:
         """The session's event, forgetting it when it is gone.
 
-        Fetched rather than read from cache: the scheduled-events cache needs
-        an intent we do not enable, so get_scheduled_event always misses. A
-        fetch also distinguishes "deleted by hand" from "not cached".
+        The scheduled-events cache needs an intent we do not enable, so this
+        fetches: get_scheduled_event would always miss.
         """
         if session.event_id is None:
             return None
@@ -259,10 +257,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _add_event(self, guild: discord.Guild, session: store.Session) -> str:
         """Put the session on the guild calendar, and say what happened.
 
-        The caller reports the result, so the reason has to come back with it:
-        a bare None would be filled in with whichever cause seemed likeliest.
-        The row is re-read because a sync just before this may have found the
-        event gone and forgotten it.
+        The caller shows the outcome, so the reason comes back with it. The
+        row is re-read: a sync just before may have found the event gone.
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.event_id is not None:
@@ -298,8 +294,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
         """Post the sign-up form, and say what happened.
 
-        The row is re-read because a sync just before this may have found the
-        form deleted and forgotten it.
+        The row is re-read: a sync just before may have found the form gone.
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.announce_message_id is not None:
@@ -328,9 +323,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
         """Rewrite the form if it has drifted, and forget it if it is gone.
 
-        Fetched rather than edited blind: the fetch is the only thing that
-        notices a form deleted by hand, and a message id alone would otherwise
-        count as a form that exists. The row must already be current.
+        Only a fetch notices a form deleted by hand, so the id alone never
+        counts as a form that exists. The row must already be current.
         """
         if session.announce_message_id is None:
             return
@@ -421,8 +415,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     ) -> None:
         """Put the session on and report what it changed, deferred already."""
         # Asked before inserting, so the reply can say what this changed.
-        # A cancelled session still holds the slot, so it is put back on
-        # rather than reported as already scheduled.
+        # A cancelled session keeps its slot, so scheduling it again reopens it.
         found = await store.session(self.db, starts_at)
         if found is not None and found.cancelled_at is not None:
             await store.reopen(self.db, found.id)
@@ -437,9 +430,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.assign_host(self.db, session.id, host.id)
         # Re-read, so the event is named after the topic just written.
         session = await store.session(self.db, starts_at) or session
-        # Synced first: a session put back on carries projections from before
-        # it was cancelled, and a projection deleted meanwhile is forgotten
-        # here, so the two below replace it rather than report it present.
+        # Synced first: a reopened session carries projections from before the
+        # cancellation, and this forgets the ones that are gone so the two
+        # calls below can replace them.
         await self._sync(interaction.guild, session)
         event_status = await self._add_event(interaction.guild, session)
         announce_status = await self._add_announce(interaction.guild, session)
@@ -751,7 +744,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return []
 
     async def _remind(self, channel: discord.TextChannel, session: store.Session) -> None:
-        """A day ahead: nudge whoever signed up."""
+        """Nudge whoever signed up."""
         await channel.send(
             f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始，"
             f"主題是 **{session.topic or '還沒定'}**。\n"
@@ -761,7 +754,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         )
 
     async def _starting(self, channel: discord.TextChannel, session: store.Session) -> None:
-        """An hour ahead: say where, and call the names."""
+        """Say where it is, and call the names."""
         voice = await settings.channel(
             self.db, channel.guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
         )
@@ -775,7 +768,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         )
 
     async def _followup(self, channel: discord.TextChannel, session: store.Session) -> None:
-        """Afterwards: name who is up next, and ask for a date."""
+        """Thank the host, and ask whoever is up next for a date."""
         candidates = await self._candidates(channel.guild)
         up_next = None if candidates is None else rotation.next_host(candidates)
         thanks = f"辛苦了 {_mention(session.host_user_id, '主持人')} 🙌"
