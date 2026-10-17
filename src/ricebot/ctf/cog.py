@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ricebot import clock, permissions, refusal, settings, sync
-from ricebot.ctf import ctftime, messages
+from ricebot.ctf import ctftime, messages, tuning
 from ricebot.store import ctf as store
 from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
@@ -22,34 +22,23 @@ SILENT = discord.AllowedMentions.none()
 PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
 # Discord accepts at most this many autocomplete choices.
 CHOICES = 25
-# Long enough for the write-ups to be written in the channel before it goes.
-ARCHIVE_AFTER = timedelta(days=2)
-
-
-def _bounded(text: str, low: float, high: float) -> float | None:
-    """The number the text holds when it is inside the bounds, else None."""
-    try:
-        value = float(text)
-    except ValueError:
-        return None
-    return value if low <= value <= high else None
 
 
 class TuningModal(discord.ui.Modal, title="CTF 篩選與封存"):
     """The three numbers the sweep reads, prefilled with what it reads now."""
 
     floor = discord.ui.Label(
-        text="權重門檻（-1 到 100）",
+        text=f"權重門檻（{tuning.bounds_text(tuning.FLOOR_BOUNDS)}）",
         description="比賽的 weight 要大於這個數字；設 -1 連未評分的也收",
         component=discord.ui.TextInput(max_length=6),
     )
     lookahead = discord.ui.Label(
-        text="往後看幾天（1 到 60）",
+        text=f"往後看幾天（{tuning.bounds_text(tuning.LOOKAHEAD_BOUNDS)}）",
         description="看得愈遠，愈容易吃掉伺服器的 100 個活動額度",
         component=discord.ui.TextInput(max_length=2),
     )
     keep = discord.ui.Label(
-        text="結束後幾天封存（0 到 60）",
+        text=f"結束後幾天封存（{tuning.bounds_text(tuning.KEEP_BOUNDS)}）",
         component=discord.ui.TextInput(max_length=2),
     )
 
@@ -61,14 +50,16 @@ class TuningModal(discord.ui.Modal, title="CTF 篩選與封存"):
         self.keep.component.default = str(keep.days)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        floor = _bounded(self.floor.component.value, -1, 100)
-        lookahead = _bounded(self.lookahead.component.value, 1, 60)
-        keep = _bounded(self.keep.component.value, 0, 60)
-        if floor is None or lookahead is None or keep is None:
-            # All or nothing: half a setting written is worse than none.
+        chosen = tuning.parse(
+            self.floor.component.value,
+            self.lookahead.component.value,
+            self.keep.component.value,
+        )
+        if chosen is None:
             await interaction.response.send_message(messages.BAD_NUMBER, ephemeral=True)
             return
 
+        floor, lookahead, keep = chosen.weight_floor, chosen.lookahead_days, chosen.keep_days
         await settings_store.put(self.cog.db, Key.CTF_WEIGHT_FLOOR, f"{floor:g}")
         await settings_store.put(self.cog.db, Key.CTF_LOOKAHEAD_DAYS, f"{lookahead:g}")
         await settings_store.put(self.cog.db, Key.CTF_ARCHIVE_DAYS, f"{keep:g}")
@@ -100,7 +91,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
     async def _weight_floor(self) -> float:
         stored = await settings_store.get_float(self.db, Key.CTF_WEIGHT_FLOOR)
-        return ctftime.WEIGHT_FLOOR if stored is None else stored
+        return tuning.WEIGHT_FLOOR if stored is None else stored
 
     async def _days(self, key: Key, fallback: timedelta) -> timedelta:
         """A setting kept in days, falling back to the constant it overrides."""
@@ -116,8 +107,8 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             TuningModal(
                 self,
                 await self._weight_floor(),
-                await self._days(Key.CTF_LOOKAHEAD_DAYS, ctftime.LOOKAHEAD),
-                await self._days(Key.CTF_ARCHIVE_DAYS, ARCHIVE_AFTER),
+                await self._days(Key.CTF_LOOKAHEAD_DAYS, tuning.LOOKAHEAD),
+                await self._days(Key.CTF_ARCHIVE_DAYS, tuning.ARCHIVE_AFTER),
             )
         )
 
@@ -235,7 +226,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if guild is None:
             return
         now = clock.now()
-        lookahead = await self._days(Key.CTF_LOOKAHEAD_DAYS, ctftime.LOOKAHEAD)
+        lookahead = await self._days(Key.CTF_LOOKAHEAD_DAYS, tuning.LOOKAHEAD)
 
         try:
             listed = await ctftime.upcoming(self.http, now=now, within=lookahead)
@@ -260,7 +251,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             except Exception:
                 log.exception("contest %s not handled", contest.ctftime_id)
 
-        keep = await self._days(Key.CTF_ARCHIVE_DAYS, ARCHIVE_AFTER)
+        keep = await self._days(Key.CTF_ARCHIVE_DAYS, tuning.ARCHIVE_AFTER)
         for contest in await store.finished(self.db, now):
             try:
                 await self._wrap_up(guild, contest, keep)

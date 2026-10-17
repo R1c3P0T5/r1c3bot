@@ -11,10 +11,6 @@ import httpx
 _API = "https://ctftime.org/api/v1/events/"
 # CTFtime asks callers to identify themselves.
 _AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
-# How far ahead contests are listed.
-LOOKAHEAD = timedelta(days=21)
-# A contest must weigh strictly more; 0 means CTFtime has no weight for it.
-WEIGHT_FLOOR = 0.0
 # Finals: only the teams that qualified enter.
 _PREQUALIFIED = "Prequalified"
 # The longest description kept for a Discord message.
@@ -94,8 +90,8 @@ def wanted(
     contests: Iterable[Contest],
     *,
     now: datetime,
-    within: timedelta = LOOKAHEAD,
-    weight_floor: float = WEIGHT_FLOOR,
+    within: timedelta,
+    weight_floor: float,
 ) -> list[Contest]:
     """The enterable contests starting inside the window, earliest first.
 
@@ -125,9 +121,7 @@ async def one(client: httpx.AsyncClient, ctftime_id: int) -> Contest | None:
     return contest(response.json())
 
 
-async def upcoming(
-    client: httpx.AsyncClient, *, now: datetime, within: timedelta = LOOKAHEAD
-) -> list[Contest]:
+async def upcoming(client: httpx.AsyncClient, *, now: datetime, within: timedelta) -> list[Contest]:
     """Everything CTFtime lists for the window, unfiltered."""
     response = await client.get(
         _API,
