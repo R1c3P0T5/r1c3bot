@@ -1,4 +1,4 @@
-"""The /config panel: one channel picker per setting, for guild managers."""
+"""The settings: the /config panel, and reading what it set."""
 
 import logging
 
@@ -25,6 +25,18 @@ _FIELDS: list[tuple[str, Key, list[discord.ChannelType]]] = [
     ("CTF 討論頻道分類", Key.CTF_CATEGORY, _CATEGORY),
     ("CTF 封存分類", Key.CTF_ARCHIVE_CATEGORY, _CATEGORY),
 ]
+
+
+async def channel[T: discord.abc.GuildChannel](
+    db: aiosqlite.Connection, guild: discord.Guild, key: Key, kind: type[T]
+) -> T | None:
+    """The channel a setting points at, or None when it is unset or gone."""
+    channel_id = await store.get_id(db, key)
+    found = guild.get_channel(channel_id) if channel_id is not None else None
+    if not isinstance(found, kind):
+        log.warning("%s is not set to a %s", key.value, kind.__name__)
+        return None
+    return found
 
 
 async def _summary(db: aiosqlite.Connection) -> str:

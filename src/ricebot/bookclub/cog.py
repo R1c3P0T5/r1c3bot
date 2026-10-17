@@ -8,10 +8,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import clock, permissions
+from ricebot import clock, permissions, settings
 from ricebot.bookclub import rotation, schedule
-from ricebot.store import audit, settings
+from ricebot.store import audit
 from ricebot.store import bookclub as store
+from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
 
 log = logging.getLogger(__name__)
@@ -193,7 +194,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     async def _candidates(self, guild: discord.Guild) -> list[rotation.Candidate] | None:
         """The host role's members, or None when the role is unset or gone."""
-        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         role = guild.get_role(role_id) if role_id is not None else None
         if role is None:
             return None
@@ -215,7 +216,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
     async def role(self, interaction: discord.Interaction, role: discord.Role) -> None:
-        await settings.put_id(self.db, Key.BOOKCLUB_ROLE, role.id)
+        await settings_store.put_id(self.db, Key.BOOKCLUB_ROLE, role.id)
         await interaction.response.send_message(
             f"讀書會身分組設為 {role.mention}，目前 {len(role.members)} 人。",
             ephemeral=True,
@@ -272,9 +273,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # Discord refuses an event in the past, and we can tell without
             # spending a request to be told.
             return IN_PAST
-        channel_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
-        channel = guild.get_channel(channel_id) if channel_id is not None else None
-        if not isinstance(channel, discord.VoiceChannel):
+        channel = await settings.channel(
+            self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
+        )
+        if channel is None:
             return NO_VOICE
         try:
             event = await guild.create_scheduled_event(
@@ -307,7 +309,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return NO_CHANNEL
-        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         try:
             message = await channel.send(
                 _announce_text(role_id, session), allowed_mentions=NOTIFY_ROLE
@@ -337,7 +339,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return
-        role_id = await settings.get_id(self.db, Key.BOOKCLUB_ROLE)
+        role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         content = _announce_text(role_id, session)
         try:
             message = await channel.fetch_message(session.announce_message_id)
@@ -737,12 +739,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await store.unmark_reminder(self.db, session.id, kind)
 
     async def _channel(self, guild: discord.Guild) -> discord.TextChannel | None:
-        channel_id = await settings.get_id(self.db, Key.BOOKCLUB_CHANNEL)
-        channel = guild.get_channel(channel_id) if channel_id is not None else None
-        if not isinstance(channel, discord.TextChannel):
-            log.warning("no bookclub channel set")
-            return None
-        return channel
+        return await settings.channel(self.db, guild, Key.BOOKCLUB_CHANNEL, discord.TextChannel)
 
     async def _attendees(self, channel: discord.TextChannel, session: store.Session) -> list[int]:
         """Who reacted to the announcement, which is the whole sign-up list."""
@@ -773,8 +770,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return False
-        voice_id = await settings.get_id(self.db, Key.BOOKCLUB_VOICE_CHANNEL)
-        where = "" if voice_id is None else f"，在 <#{voice_id}>"
+        voice = await settings.channel(
+            self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
+        )
+        where = f"，在 {voice.mention}" if voice is not None else ""
         await channel.send(
             f"快開始了，{clock.stamp(session.starts_at, 'R')}{where}。\n"
             f"今天由 {_mention(session.host_user_id, NO_ASSIGNEE)} 帶，"
