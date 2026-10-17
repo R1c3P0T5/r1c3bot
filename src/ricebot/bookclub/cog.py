@@ -64,7 +64,7 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     lines = [] if role_id is None else [f"<@&{role_id}>"]
     lines += [
         f"## 📚 讀書會{f' · {session.topic}' if session.topic else ''}",
-        f"{clock.stamp(session.starts_at)}　{clock.stamp(session.starts_at, 'R')}",
+        f"{clock.stamp(session.starts_at)} {clock.stamp(session.starts_at, 'R')}",
         f"主持人：{_mention(session.host_user_id, UNASSIGNED)}",
     ]
     if session.cancelled_at is not None:
@@ -477,7 +477,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         sessions = await store.upcoming(self.db, self._cutoff())
         return [
             app_commands.Choice(
-                name=f"{clock.taipei(s.starts_at):%m/%d %H:%M}　{s.topic or '未設定主題'}"[:100],
+                name=f"{clock.taipei(s.starts_at):%m/%d %H:%M} {s.topic or '未設定主題'}"[:100],
                 value=s.starts_at.isoformat(),
             )
             for s in sessions
@@ -648,7 +648,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             host = _mention(session.host_user_id, UNASSIGNED)
             topic = (session.topic or "—")[:40]
             note = "（已取消）" if session.cancelled_at else ""
-            lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}`　{host}　{topic}{note}")
+            lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}` {host} {topic}{note}")
         await interaction.response.send_message(
             "\n".join(lines), ephemeral=True, allowed_mentions=SILENT
         )
