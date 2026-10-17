@@ -8,9 +8,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import clock, permissions, settings
+from ricebot import audit, clock, permissions, settings
 from ricebot.bookclub import rotation, schedule
-from ricebot.store import audit
 from ricebot.store import bookclub as store
 from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
@@ -137,13 +136,9 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
         # this is the one path to a session that needs no permission.
         await audit.record(
             self.cog.db,
-            audit.Entry(
-                at=clock.now(),
-                user_id=interaction.user.id,
-                user_name=interaction.user.display_name,
-                command="bookclub new",
-                options=f"day={day} at={at} host={host.mention} topic={topic} via=按鈕",
-            ),
+            interaction,
+            "bookclub new",
+            f"day={day} at={at} host={host.mention} topic={topic} via=按鈕",
         )
 
 
