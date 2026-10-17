@@ -622,6 +622,11 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             await channel.set_permissions(member, overwrite=None)
         except discord.HTTPException as error:
             log.warning("%s not removed from %s: %s", member.id, channel.id, error)
+            return
+
+        await channel.send(
+            f"{member.mention} 不打了 ... 掰掰", allowed_mentions=discord.AllowedMentions.none()
+        )
 
     async def _archive(self, guild: discord.Guild, contest: store.Contest) -> str | None:
         """Move the channel out of the way and make it read-only.
