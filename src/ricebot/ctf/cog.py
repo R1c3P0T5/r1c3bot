@@ -28,6 +28,10 @@ CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
 NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` 設定"
 NOTHING_OPEN = "現在沒有在追蹤的比賽。"
+ANNOUNCE_POSTED = "已發布"
+ANNOUNCE_MISSING = "未發布，原因在 log"
+EVENT_CREATED = "已建立"
+EVENT_MISSING = "未建立（已經開始，或 Discord 拒絕）"
 # A reply takes 2000 characters, and a line with a link approaches a hundred.
 LISTED = 15
 NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config` 設定"
@@ -51,7 +55,6 @@ def _duration_text(span: timedelta) -> str:
 
 def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
     """What the contest is, for the message and for the guild event alike."""
-    # ctftime.wanted() filters onsite contests out.
     where = f"實體（{contest.location}）" if contest.onsite else "線上"
     casual = "休閒" if contest.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, contest.format, casual) if part)
@@ -148,6 +151,38 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if len(contests) > LISTED:
             lines.append(f"-# 另外還有 {len(contests) - LISTED} 場。")
         await interaction.followup.send("\n".join(lines), ephemeral=True, allowed_mentions=SILENT)
+
+    @app_commands.command(description="手動公告一場比賽，不經過篩選條件")
+    @app_commands.guild_only()
+    @app_commands.describe(ctftime_id="CTFtime 活動頁網址末端的數字")
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
+    async def announce(self, interaction: discord.Interaction, ctftime_id: int) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            listed = await ctftime.one(self.http, ctftime_id)
+        except (httpx.HTTPError, ValueError) as error:
+            await interaction.followup.send(f"CTFtime 讀不到：{error}", ephemeral=True)
+            return
+        if listed is None:
+            await interaction.followup.send(f"CTFtime 上沒有 {ctftime_id} 這場。", ephemeral=True)
+            return
+
+        # Asked before inserting, so the reply can say what this changed.
+        known = await store.contest(self.db, ctftime_id) is not None
+        contest = await store.ensure(self.db, listed)
+        await self._reconcile(interaction.guild, contest)
+
+        saved = await store.contest(self.db, ctftime_id) or contest
+        over = "\n-# 這場已經結束，下一輪會直接封存。" if saved.finishes_at <= clock.now() else ""
+        await interaction.followup.send(
+            f"{'這場已經在追蹤了，補上缺的部分' if known else '收進來了'} **{saved.title}**\n"
+            f"{clock.stamp(saved.starts_at, 'f')} ～ {clock.stamp(saved.finishes_at, 'f')}\n"
+            f"公告：{ANNOUNCE_POSTED if saved.announce_message_id else ANNOUNCE_MISSING}\n"
+            f"活動：{EVENT_CREATED if saved.guild_event_id else EVENT_MISSING}{over}",
+            ephemeral=True,
+            allowed_mentions=SILENT,
+        )
 
     @tasks.loop(hours=6)
     async def _tick(self) -> None:
