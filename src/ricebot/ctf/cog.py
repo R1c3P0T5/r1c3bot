@@ -477,6 +477,10 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         except discord.HTTPException as error:
             log.warning("event %s not fetched: %s", contest.guild_event_id, error)
             return
+        if scheduled.status in (discord.EventStatus.canceled, discord.EventStatus.completed):
+            # Discord has no way to reopen an event, so this one is spent.
+            await store.set_guild_event(self.db, contest.ctftime_id, None)
+            return
         if scheduled.status is not discord.EventStatus.scheduled:
             # Discord refuses edits to an event that has started.
             return
