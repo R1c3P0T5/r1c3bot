@@ -28,7 +28,7 @@ class Reminder(StrEnum):
 
 # Offset from the session start; the follow-up lands after it ends. The
 # sign-up form is not here: it is posted when the session is scheduled.
-DEFAULT_OFFSETS: Mapping[Reminder, timedelta] = {
+OFFSETS: Mapping[Reminder, timedelta] = {
     Reminder.REMIND: -timedelta(days=1),
     Reminder.STARTING: -timedelta(hours=1),
     Reminder.FOLLOWUP: DURATION,
@@ -62,38 +62,28 @@ def cutoff(now: datetime) -> datetime:
     return now - DURATION
 
 
-def reminders(
-    start: datetime, offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS
-) -> dict[Reminder, datetime]:
-    """When each reminder becomes due; the cog passes offsets read from settings."""
-    return {kind: start + offset for kind, offset in offsets.items()}
+def reminders(start: datetime) -> dict[Reminder, datetime]:
+    """When each reminder becomes due."""
+    return {kind: start + offset for kind, offset in OFFSETS.items()}
 
 
-def due(
-    start: datetime,
-    now: datetime,
-    offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS,
-) -> list[Reminder]:
+def due(start: datetime, now: datetime) -> list[Reminder]:
     """The reminders that have come round and not yet gone stale, in order.
 
     Each one is superseded by the next, so a tick arriving after the next is
     due skips it: an outage must not replay a session's whole run of reminders
     at once. The last one holds for the catch-up window instead.
     """
-    times = reminders(start, offsets)
-    if not times:
-        return []
+    times = reminders(start)
     order = sorted(times, key=times.__getitem__)
     expiry = [times[kind] for kind in order[1:]] + [times[order[-1]] + CATCH_UP]
     return [kind for kind, ends in zip(order, expiry, strict=True) if times[kind] <= now < ends]
 
 
-def pending_from(
-    now: datetime, offsets: Mapping[Reminder, timedelta] = DEFAULT_OFFSETS
-) -> datetime:
+def pending_from(now: datetime) -> datetime:
     """The earliest start whose reminders may still be unsent.
 
     A session is done once its last reminder is due, so CATCH_UP is how long
     a restart can still make up for what the downtime missed.
     """
-    return now - max(offsets.values()) - CATCH_UP
+    return now - max(OFFSETS.values()) - CATCH_UP
