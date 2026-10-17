@@ -134,6 +134,7 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
                 f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
             )
             return
+
         await interaction.response.defer(ephemeral=True)
         host, topic = self.host.component.values[0], self.topic.component.value
         await self.cog.schedule_session(interaction, starts_at, host, topic)
@@ -240,6 +241,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         if session.event_id is None:
             return None
+
         try:
             event = await guild.fetch_scheduled_event(session.event_id)
         except discord.NotFound:
@@ -267,6 +269,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session.starts_at <= clock.now():
             # Discord refuses an event in the past.
             return EVENT_IN_PAST
+
         channel = await settings.channel(
             self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
         )
@@ -286,6 +289,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # The session is already saved, so a failed event must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
             return f"未建立（Discord 回報 {_reason(error)}）"
+
         await store.set_event(self.db, session.id, event.id)
         log.info("event %s created for %s", event.id, session.starts_at)
         return EVENT_CREATED
@@ -301,6 +305,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return ANNOUNCE_NO_CHANNEL
+
         role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         try:
             message = await channel.send(
@@ -309,6 +314,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except discord.HTTPException as error:
             log.warning("no announcement for %s: %s", session.starts_at, error)
             return f"未發布（Discord 回報 {_reason(error)}）"
+
         # Recorded before reacting, so a failed reaction cannot cause a second post.
         await store.set_announce(self.db, session.id, message.id)
         log.info("announcement %s posted for %s", message.id, session.starts_at)
@@ -329,6 +335,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return
+
         role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         content = _announce_text(role_id, session)
         try:
@@ -422,10 +429,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             lead = "這場已經排過，補上缺的部分"
         else:
             lead = "排好了"
+
         session = await store.ensure(self.db, starts_at)
         await store.set_topic(self.db, session.id, topic)
         # Volunteering spends the turn just as being assigned does.
         await store.assign_host(self.db, session.id, host.id)
+
         # Sync first: projections lost since a cancellation are forgotten here,
         # so the two calls below put them back.
         await self._sync(interaction.guild, session)
@@ -565,6 +574,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await interaction.response.send_message(NO_HOST, ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
+
         declined = session.host_user_id
         await store.record_skip(self.db, session.id, declined)
         # Written first: _assign_host passes over everyone recorded as skipped.
@@ -574,6 +584,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             note = "但現在沒有人能接手，要請管理員用 `/bookclub host` 指派。"
         else:
             note = f"由 <@{host}> 接手。"
+
         await self._sync(interaction.guild, session)
         await self._notify(
             interaction,
@@ -672,6 +683,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if guild is None:
             return
         now = clock.now()
+
         for session in await store.upcoming(self.db, schedule.pending_from(now)):
             # Per session, so one that cannot be handled does not hold up the rest.
             try:
@@ -714,8 +726,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         channel = await self._channel(guild)
         if channel is None:
             return
+
         if not await store.mark_reminder(self.db, session.id, kind, now):
             return
+
         try:
             await self._senders[kind](channel, session)
         except Exception:

@@ -119,6 +119,7 @@ class CtfCog(commands.Cog):
         if guild is None:
             return
         now = clock.now()
+
         try:
             listed = await ctftime.upcoming(self.http, now=now)
         except (httpx.HTTPError, ValueError) as error:
@@ -130,6 +131,7 @@ class CtfCog(commands.Cog):
                 await store.ensure(self.db, found)
             except Exception:
                 log.exception("contest %s not recorded", found.id)
+
         # Everything still open, not only what this pass listed: a contest that
         # has started still has an announcement and an event to keep in step.
         for contest in await store.open_contests(self.db):
@@ -137,6 +139,7 @@ class CtfCog(commands.Cog):
                 await self._reconcile(guild, contest)
             except Exception:
                 log.exception("contest %s not handled", contest.ctftime_id)
+
         for contest in await store.finished(self.db, now - ARCHIVE_AFTER):
             try:
                 await self._archive(guild, contest)
@@ -180,6 +183,7 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("contest %s not announced: %s", contest.ctftime_id, error)
             return
+
         # Recorded before reacting, so a failed reaction cannot cause a second post.
         await store.set_announce(self.db, contest.ctftime_id, message.id)
         log.info("contest %s announced as %s", contest.ctftime_id, message.id)
@@ -195,6 +199,7 @@ class CtfCog(commands.Cog):
         channel = await self._announce_channel(guild)
         if channel is None:
             return
+
         content = _announce_text(contest)
         try:
             message = await channel.fetch_message(contest.announce_message_id)
@@ -217,6 +222,7 @@ class CtfCog(commands.Cog):
         contest = await store.contest(self.db, contest.ctftime_id) or contest
         if contest.guild_event_id is not None or contest.starts_at <= clock.now():
             return
+
         try:
             created = await guild.create_scheduled_event(
                 name=contest.title[:100],
@@ -230,6 +236,7 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("no event for contest %s: %s", contest.ctftime_id, error)
             return
+
         await store.set_guild_event(self.db, contest.ctftime_id, created.id)
         log.info("event %s created for contest %s", created.id, contest.ctftime_id)
 
@@ -249,6 +256,7 @@ class CtfCog(commands.Cog):
         if scheduled.status is not discord.EventStatus.scheduled:
             # Discord refuses edits to an event that has started.
             return
+
         description = _event_description(contest)
         if (scheduled.name, scheduled.description or "", scheduled.start_time) == (
             contest.title[:100],
@@ -256,6 +264,7 @@ class CtfCog(commands.Cog):
             contest.starts_at,
         ):
             return
+
         try:
             await scheduled.edit(
                 name=contest.title[:100],
@@ -276,9 +285,11 @@ class CtfCog(commands.Cog):
                 return channel
             log.info("channel %s is gone; it will be created again", contest.channel_id)
             await store.set_channel(self.db, contest.ctftime_id, None)
+
         category = await settings.channel(self.db, guild, Key.CTF_CATEGORY, discord.CategoryChannel)
         if category is None:
             return None
+
         try:
             channel = await category.create_text_channel(
                 ctftime.slug(contest.title, f"ctf-{contest.ctftime_id}"),
@@ -291,6 +302,7 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("no channel for contest %s: %s", contest.ctftime_id, error)
             return None
+
         await store.set_channel(self.db, contest.ctftime_id, channel.id)
         log.info("channel %s created for contest %s", channel.id, contest.ctftime_id)
         await channel.send(_channel_text(contest), allowed_mentions=SILENT)
@@ -307,6 +319,7 @@ class CtfCog(commands.Cog):
         channel = await self._team_channel(member.guild, contest)
         if channel is None:
             return
+
         # Already in: a second press must not announce them again.
         known = channel.overwrites_for(member).view_channel is True
         try:
@@ -326,6 +339,7 @@ class CtfCog(commands.Cog):
         contest = await store.by_message(self.db, payload.message_id)
         if contest is None or contest.channel_id is None or contest.archived_at is not None:
             return
+
         guild = self.bot.get_guild(payload.guild_id or self.guild_id)
         channel = guild.get_channel(contest.channel_id) if guild is not None else None
         member = guild.get_member(payload.user_id) if guild is not None else None
@@ -344,6 +358,7 @@ class CtfCog(commands.Cog):
         if not isinstance(channel, discord.TextChannel):
             await store.archive(self.db, contest.ctftime_id, clock.now())
             return
+
         category = await settings.channel(
             self.db, guild, Key.CTF_ARCHIVE_CATEGORY, discord.CategoryChannel
         )
@@ -358,5 +373,6 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("channel %s not archived: %s", channel.id, error)
             return
+
         await store.archive(self.db, contest.ctftime_id, clock.now())
         log.info("channel %s archived for contest %s", channel.id, contest.ctftime_id)

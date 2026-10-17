@@ -92,6 +92,7 @@ async def ensure(db: aiosqlite.Connection, listed: ctftime.Contest) -> Contest:
         ),
     )
     await db.commit()
+
     found = await contest(db, listed.id)
     if found is None:
         raise RuntimeError(f"no ctf_events row after insert: {listed.id}")
