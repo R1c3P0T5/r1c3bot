@@ -151,7 +151,9 @@ class CtfCog(commands.Cog):
 
         for contest in await store.finished(self.db, now - ARCHIVE_AFTER):
             try:
-                await self._archive(guild, contest)
+                reason = await self._archive(guild, contest)
+                if reason is not None:
+                    await self._archive_failed(guild, contest, reason)
             except Exception:
                 log.exception("contest %s not archived", contest.ctftime_id)
 
@@ -390,19 +392,22 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("%s not removed from %s: %s", member.id, channel.id, error)
 
-    async def _archive(self, guild: discord.Guild, contest: store.Contest) -> None:
-        """Move the channel out of the way and make it read-only."""
+    async def _archive(self, guild: discord.Guild, contest: store.Contest) -> str | None:
+        """Move the channel out of the way and make it read-only.
+
+        Returns why it did not happen, or None once it has: the caller decides
+        who hears about a failure.
+        """
         channel = guild.get_channel(contest.channel_id) if contest.channel_id is not None else None
         if not isinstance(channel, discord.TextChannel):
             await store.archive(self.db, contest.ctftime_id, clock.now())
-            return
+            return None
 
         category = await settings.channel(
             self.db, guild, Key.CTF_ARCHIVE_CATEGORY, discord.CategoryChannel
         )
         if category is None:
-            await self._archive_failed(guild, contest, NO_ARCHIVE_CATEGORY)
-            return
+            return NO_ARCHIVE_CATEGORY
 
         try:
             # Member overwrites stay, so whoever was in it still reads it.
@@ -412,8 +417,8 @@ class CtfCog(commands.Cog):
             )
         except discord.HTTPException as error:
             log.warning("channel %s not archived: %s", channel.id, error)
-            await self._archive_failed(guild, contest, f"Discord 回報 {_reason(error)}")
-            return
+            return f"Discord 回報 {_reason(error)}"
 
         await store.archive(self.db, contest.ctftime_id, clock.now())
         log.info("channel %s archived for contest %s", channel.id, contest.ctftime_id)
+        return None
