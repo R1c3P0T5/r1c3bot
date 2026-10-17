@@ -74,7 +74,7 @@ def test_a_description_that_fits_is_left_alone() -> None:
 
 
 def test_a_cut_with_nowhere_to_break_takes_the_whole_width() -> None:
-    assert ctftime.shorten("aaaaaaaaaaaaaaaa", 8) == "aaaaaaaa…"
+    assert ctftime.shorten("aaaaaaaaaaaaaaaa", 8) == "aaaaaaa…"
 
 
 def test_the_ctftime_page_stands_in_for_a_missing_site() -> None:
