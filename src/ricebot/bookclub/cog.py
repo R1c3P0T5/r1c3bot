@@ -754,7 +754,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """Who reacted to the announcement, which is the whole sign-up list."""
         if session.announce_message_id is None:
             return []
-        message = await channel.fetch_message(session.announce_message_id)
+        try:
+            message = await channel.fetch_message(session.announce_message_id)
+        except discord.NotFound:
+            # Deleted by hand; the next reconcile posts one and this list is
+            # empty until it does.
+            return []
         for reaction in message.reactions:
             if str(reaction.emoji) == RSVP:
                 return [user.id async for user in reaction.users() if not user.bot]
