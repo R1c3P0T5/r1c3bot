@@ -19,6 +19,22 @@ def _options(namespace: app_commands.Namespace) -> str:
     )
 
 
+async def record(
+    db: aiosqlite.Connection, interaction: discord.Interaction, command: str, options: str
+) -> None:
+    """Record what an interaction changed, under the name of the command it came from."""
+    await store.record(
+        db,
+        store.Entry(
+            at=clock.now(),
+            user_id=interaction.user.id,
+            user_name=interaction.user.display_name,
+            command=command,
+            options=options,
+        ),
+    )
+
+
 class AuditCog(commands.Cog):
     def __init__(self, db: aiosqlite.Connection) -> None:
         self.db = db
@@ -33,13 +49,4 @@ class AuditCog(commands.Cog):
         # changed nothing, and permissions.on_error logs those.
         if command.qualified_name in READS:
             return
-        await store.record(
-            self.db,
-            store.Entry(
-                at=clock.now(),
-                user_id=interaction.user.id,
-                user_name=interaction.user.display_name,
-                command=command.qualified_name,
-                options=_options(interaction.namespace),
-            ),
-        )
+        await record(self.db, interaction, command.qualified_name, _options(interaction.namespace))
