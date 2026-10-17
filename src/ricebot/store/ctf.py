@@ -6,6 +6,7 @@ from datetime import datetime
 import aiosqlite
 
 from ricebot.ctf.ctftime import Contest
+from ricebot.store import db
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,9 +50,7 @@ def _event(row: aiosqlite.Row) -> Event:
         announce_message_id=row["announce_message_id"],
         channel_id=row["channel_id"],
         event_id=row["event_id"],
-        archived_at=None
-        if row["archived_at"] is None
-        else datetime.fromisoformat(row["archived_at"]),
+        archived_at=db.moment(row["archived_at"]),
     )
 
 

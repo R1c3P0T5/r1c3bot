@@ -2,6 +2,7 @@
 
 import logging
 import re
+from datetime import datetime
 from importlib import resources
 from importlib.resources.abc import Traversable
 from pathlib import Path
@@ -14,6 +15,11 @@ MIGRATIONS = resources.files("ricebot.store") / "migrations"
 
 # The filename is interpolated into SQL below, so this is also the guard.
 _NAME = re.compile(r"\A\d{3}_[a-z0-9_]+\.sql\Z")
+
+
+def moment(value: str | None) -> datetime | None:
+    """The instant a nullable timestamp column holds."""
+    return None if value is None else datetime.fromisoformat(value)
 
 
 async def connect(path: Path) -> aiosqlite.Connection:

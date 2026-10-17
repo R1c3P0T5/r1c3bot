@@ -6,6 +6,7 @@ from datetime import datetime
 import aiosqlite
 
 from ricebot.bookclub.schedule import Reminder
+from ricebot.store import db
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,10 +21,6 @@ class Session:
     cancelled_at: datetime | None = None
 
 
-def _moment(value: str | None) -> datetime | None:
-    return None if value is None else datetime.fromisoformat(value)
-
-
 def _session(row: aiosqlite.Row) -> Session:
     return Session(
         id=row["id"],
@@ -33,7 +30,7 @@ def _session(row: aiosqlite.Row) -> Session:
         topic=row["topic"],
         event_id=row["event_id"],
         announce_message_id=row["announce_message_id"],
-        cancelled_at=_moment(row["cancelled_at"]),
+        cancelled_at=db.moment(row["cancelled_at"]),
     )
 
 
