@@ -16,6 +16,8 @@ from ricebot.store.settings import Key
 log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
+# A member waiting to be let in is worth a notification.
+PING_USERS = discord.AllowedMentions(users=True)
 # Reacting with this emoji opens the discussion channel.
 RSVP = "🚩"
 # CTFtime's restriction values. Open is not printed, and Casual marks a
@@ -23,10 +25,17 @@ RSVP = "🚩"
 OPEN = "Open"
 CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
+NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` 設定"
+NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config` 設定"
 # A guild event's description takes 1000 characters, markup and all.
 EVENT_LIMIT = 1000
 # Long enough for the write-ups to be written in the channel before it goes.
 ARCHIVE_AFTER = timedelta(days=2)
+
+
+def _reason(error: discord.HTTPException) -> str:
+    """The first line of a Discord error; the rest is a JSON body."""
+    return str(error).splitlines()[0][:80]
 
 
 def _duration_text(span: timedelta) -> str:
@@ -275,8 +284,34 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("event %s not updated: %s", contest.guild_event_id, error)
 
+    async def _rsvp_failed(self, guild: discord.Guild, member: discord.Member, reason: str) -> None:
+        """Say that a 🚩 did not get the member in; a reaction has no reply of its own."""
+        channel = await self._announce_channel(guild)
+        if channel is None:
+            return
+        await channel.send(
+            f"{member.mention} 的 🚩 收到了，但我沒能讓你進去。\n-# {reason}",
+            allowed_mentions=PING_USERS,
+        )
+
+    async def _archive_failed(
+        self, guild: discord.Guild, contest: store.Contest, reason: str
+    ) -> None:
+        """Say once that a channel cannot be put away; the sweep retries every pass."""
+        if contest.archive_warned_at is not None:
+            return
+        channel = await self._announce_channel(guild)
+        if channel is None:
+            return
+        await channel.send(
+            f"**{contest.title}** 的討論頻道該封存了，但搬不過去。\n-# {reason}",
+            allowed_mentions=SILENT,
+        )
+        # Recorded after sending: a repeated warning beats a silenced one.
+        await store.warn_archive(self.db, contest.ctftime_id, clock.now())
+
     async def _team_channel(
-        self, guild: discord.Guild, contest: store.Contest
+        self, guild: discord.Guild, contest: store.Contest, member: discord.Member
     ) -> discord.TextChannel | None:
         """The contest's channel, opened on demand because the first 🚩 asks for it."""
         if contest.channel_id is not None:
@@ -288,6 +323,7 @@ class CtfCog(commands.Cog):
 
         category = await settings.channel(self.db, guild, Key.CTF_CATEGORY, discord.CategoryChannel)
         if category is None:
+            await self._rsvp_failed(guild, member, NO_CATEGORY)
             return None
 
         try:
@@ -301,6 +337,7 @@ class CtfCog(commands.Cog):
             )
         except discord.HTTPException as error:
             log.warning("no channel for contest %s: %s", contest.ctftime_id, error)
+            await self._rsvp_failed(guild, member, f"Discord 回報 {_reason(error)}")
             return None
 
         await store.set_channel(self.db, contest.ctftime_id, channel.id)
@@ -316,7 +353,7 @@ class CtfCog(commands.Cog):
         contest = await store.by_message(self.db, payload.message_id)
         if contest is None or contest.archived_at is not None:
             return
-        channel = await self._team_channel(member.guild, contest)
+        channel = await self._team_channel(member.guild, contest, member)
         if channel is None:
             return
 
@@ -326,6 +363,7 @@ class CtfCog(commands.Cog):
             await channel.set_permissions(member, view_channel=True)
         except discord.HTTPException as error:
             log.warning("%s not let into %s: %s", member.id, channel.id, error)
+            await self._rsvp_failed(member.guild, member, f"Discord 回報 {_reason(error)}")
             return
         if not known:
             await channel.send(
@@ -363,7 +401,9 @@ class CtfCog(commands.Cog):
             self.db, guild, Key.CTF_ARCHIVE_CATEGORY, discord.CategoryChannel
         )
         if category is None:
+            await self._archive_failed(guild, contest, NO_ARCHIVE_CATEGORY)
             return
+
         try:
             # Member overwrites stay, so whoever was in it still reads it.
             await channel.edit(category=category)
@@ -372,6 +412,7 @@ class CtfCog(commands.Cog):
             )
         except discord.HTTPException as error:
             log.warning("channel %s not archived: %s", channel.id, error)
+            await self._archive_failed(guild, contest, f"Discord 回報 {_reason(error)}")
             return
 
         await store.archive(self.db, contest.ctftime_id, clock.now())
