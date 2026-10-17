@@ -722,15 +722,16 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         now: datetime,
     ) -> None:
         """Claim the reminder before sending it, and release the claim if it fails."""
+        channel = await self._channel(guild)
+        if channel is None:
+            return
         if not await store.mark_reminder(self.db, session.id, kind, now):
             return
         try:
-            sent = await self._senders[kind](guild, session)
+            await self._senders[kind](channel, session)
         except Exception:
             # Anything at all: the claim must not outlive a failed send.
             log.exception("%s for session %s failed", kind, session.id)
-            sent = False
-        if not sent:
             await store.unmark_reminder(self.db, session.id, kind)
 
     async def _channel(self, guild: discord.Guild) -> discord.TextChannel | None:
@@ -746,11 +747,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
                 return [user.id async for user in reaction.users() if not user.bot]
         return []
 
-    async def _remind(self, guild: discord.Guild, session: store.Session) -> bool:
+    async def _remind(self, channel: discord.TextChannel, session: store.Session) -> None:
         """A day ahead: nudge whoever signed up."""
-        channel = await self._channel(guild)
-        if channel is None:
-            return False
         await channel.send(
             f"讀書會 {clock.stamp(session.starts_at, 'R')} 開始，"
             f"主題是 **{session.topic or '還沒定'}**。\n"
@@ -758,15 +756,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
         )
-        return True
 
-    async def _starting(self, guild: discord.Guild, session: store.Session) -> bool:
+    async def _starting(self, channel: discord.TextChannel, session: store.Session) -> None:
         """An hour ahead: say where, and call the names."""
-        channel = await self._channel(guild)
-        if channel is None:
-            return False
         voice = await settings.channel(
-            self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
+            self.db, channel.guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
         )
         where = f"，在 {voice.mention}" if voice is not None else ""
         await channel.send(
@@ -776,15 +770,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
         )
-        return True
 
-    async def _followup(self, guild: discord.Guild, session: store.Session) -> bool:
+    async def _followup(self, channel: discord.TextChannel, session: store.Session) -> None:
         """Afterwards: name who is up next, and ask for a date."""
-        channel = await self._channel(guild)
-        if channel is None:
-            return False
-        candidates = await self._candidates(guild)
-        up_next = None if candidates is None else rotation.next_host(candidates, set())
+        candidates = await self._candidates(channel.guild)
+        up_next = None if candidates is None else rotation.next_host(candidates)
         thanks = f"辛苦了 {_mention(session.host_user_id, '主持人')} 🙌"
         await channel.send(
             f"今天的讀書會結束了，{thanks}\n"
@@ -793,7 +783,6 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             allowed_mentions=NOTIFY,
             view=ScheduleView(self),
         )
-        return True
 
     async def _roll_call(self, channel: discord.TextChannel, session: store.Session) -> str:
         attendees = await self._attendees(channel, session)
