@@ -83,6 +83,11 @@ def _form_link(channel: discord.TextChannel, session: store.Session) -> str:
     return f"\n{channel.get_partial_message(session.announce_message_id).jump_url}"
 
 
+def _reason(error: discord.HTTPException) -> str:
+    """Discord's complaint, first line only: it answers with a form dump."""
+    return str(error).splitlines()[0][:80]
+
+
 def _event_name(session: store.Session) -> str:
     # Discord caps an event name at 100 characters.
     return f"{EVENT_NAME}：{session.topic[:80]}" if session.topic else EVENT_NAME
@@ -286,7 +291,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # The session is already scheduled; the event is the extra, so a
             # failure here must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
-            return f"未建立（Discord 回報 {str(error).splitlines()[0][:80]}）"
+            return f"未建立（Discord 回報 {_reason(error)}）"
         await store.set_event(self.db, session.id, event.id)
         log.info("event %s created for %s", event.id, session.starts_at)
         return EVENT_CREATED
@@ -309,7 +314,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
         except discord.HTTPException as error:
             log.warning("no announcement for %s: %s", session.starts_at, error)
-            return f"未發布（Discord 回報 {str(error).splitlines()[0][:80]}）"
+            return f"未發布（Discord 回報 {_reason(error)}）"
         # Recorded before the reaction, so failing to add it cannot cost the
         # message and leave the next pass posting a second one.
         await store.set_announce(self.db, session.id, message.id)
