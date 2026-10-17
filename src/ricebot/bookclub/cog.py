@@ -10,8 +10,8 @@ from discord.ext import commands, tasks
 
 from ricebot import clock, permissions
 from ricebot.bookclub import rotation, schedule
+from ricebot.store import audit, settings
 from ricebot.store import bookclub as store
-from ricebot.store import settings
 from ricebot.store.settings import Key
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,10 @@ DAY_SPAN = 25
 # exactly 25 entries, which is also Discord's limit for an autocomplete reply.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
 BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
+# Discord sends only the custom_id back, so a button that outlives the
+# process is re-registered under the same one at startup.
+SCHEDULE_ID = "bookclub:schedule-next"
+SCHEDULE_LABEL = "排下一場"
 
 
 _WEEKDAYS = "一二三四五六日"
@@ -49,6 +53,14 @@ _WEEKDAYS = "一二三四五六日"
 
 def _weekday(day: date) -> str:
     return f"週{_WEEKDAYS[day.weekday()]}"
+
+
+def _parse(day: str, at: str) -> datetime | None:
+    """The start the two strings name, or None if either is not a time."""
+    try:
+        return schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
+    except ValueError:
+        return None
 
 
 def _mention(user_id: int | None, fallback: str) -> str:
@@ -93,6 +105,75 @@ def _event_description(guild: discord.Guild, session: store.Session) -> str:
     return "\n".join(lines)
 
 
+class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
+    """The options of /bookclub new, for members who cannot run it.
+
+    A modal has no autocomplete, so the date and the time are typed rather
+    than picked from the lists the command offers.
+    """
+
+    day = discord.ui.Label(
+        text="日期",
+        description="YYYY-MM-DD",
+        component=discord.ui.TextInput(placeholder="2026-10-24", min_length=10, max_length=10),
+    )
+    at = discord.ui.Label(
+        text="時間",
+        description="HH:MM",
+        component=discord.ui.TextInput(placeholder="20:00", min_length=4, max_length=5),
+    )
+    host = discord.ui.Label(text="主持人", component=discord.ui.UserSelect(required=True))
+    topic = discord.ui.Label(text="主題", component=discord.ui.TextInput(max_length=100))
+
+    def __init__(self, cog: "BookclubCog") -> None:
+        super().__init__()
+        self.cog = cog
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        day, at = self.day.component.value, self.at.component.value
+        starts_at = _parse(day, at)
+        if starts_at is None:
+            await interaction.response.send_message(
+                f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        host, topic = self.host.component.values[0], self.topic.component.value
+        await self.cog._schedule(interaction, starts_at, host, topic)
+        # A button is not an app command, so the audit listener never sees it;
+        # this is the one path to a session that needs no permission.
+        await audit.record(
+            self.cog.db,
+            audit.Entry(
+                at=clock.now(),
+                user_id=interaction.user.id,
+                user_name=interaction.user.display_name,
+                command="bookclub new",
+                options=f"day={day} at={at} host={host.mention} topic={topic} via=按鈕",
+            ),
+        )
+
+
+class ScheduleView(discord.ui.View):
+    """The button under the follow-up: anyone may put the next session on."""
+
+    def __init__(self, cog: "BookclubCog") -> None:
+        # No timeout: the message stays in the channel long after this view.
+        super().__init__(timeout=None)
+        self.cog = cog
+
+    @discord.ui.button(
+        label=SCHEDULE_LABEL,
+        emoji="📅",
+        style=discord.ButtonStyle.primary,
+        custom_id=SCHEDULE_ID,
+    )
+    async def schedule_next(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ) -> None:
+        await interaction.response.send_modal(ScheduleModal(self.cog))
+
+
 class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     def __init__(self, bot: commands.Bot, db: aiosqlite.Connection, guild_id: int) -> None:
         self.bot = bot
@@ -106,6 +187,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
     async def cog_load(self) -> None:
         self._tick.start()
+        # Registered by custom_id, so buttons on messages from before this
+        # process started keep working.
+        self.bot.add_view(ScheduleView(self))
 
     async def cog_unload(self) -> None:
         self._tick.cancel()
@@ -324,9 +408,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host: discord.Member,
         topic: str,
     ) -> None:
-        try:
-            starts_at = schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
-        except ValueError:
+        starts_at = _parse(day, at)
+        if starts_at is None:
             await interaction.response.send_message(
                 f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
             )
@@ -335,6 +418,16 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Private: the announcement is what tells the channel, so this reply
         # is for the person who scheduled it.
         await interaction.response.defer(ephemeral=True)
+        await self._schedule(interaction, starts_at, host, topic)
+
+    async def _schedule(
+        self,
+        interaction: discord.Interaction,
+        starts_at: datetime,
+        host: discord.Member | discord.User,
+        topic: str,
+    ) -> None:
+        """Put the session on and report what it changed, deferred already."""
         # Asked before inserting, so the reply can say what this changed.
         # A cancelled session still holds the slot, so it is put back on
         # rather than reported as already scheduled.
@@ -703,8 +796,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await channel.send(
             f"今天的讀書會結束了，{thanks}\n"
             f"下一棒輪到 {_mention(up_next, NO_ASSIGNEE)}，"
-            "想好主題就用 `/bookclub new` 把時間訂下來。",
+            f"想好主題就按下面的「{SCHEDULE_LABEL}」把時間訂下來。",
             allowed_mentions=NOTIFY,
+            view=ScheduleView(self),
         )
         return True
 
