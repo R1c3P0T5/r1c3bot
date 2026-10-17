@@ -103,12 +103,12 @@ class CtfCog(commands.Cog):
     async def _tick(self) -> None:
         """Pick up the contests CTFtime lists, then put away the ones that are over."""
         try:
-            await self._pass()
+            await self._sweep()
         except Exception:
             # A failure here would stop the loop for good.
-            log.exception("the ctf pass failed")
+            log.exception("the ctf sweep failed")
 
-    async def _pass(self) -> None:
+    async def _sweep(self) -> None:
         guild = self.bot.get_guild(self.guild_id)
         if guild is None:
             return
