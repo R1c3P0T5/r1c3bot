@@ -98,6 +98,16 @@ def _reason(error: discord.HTTPException) -> str:
     return str(error).splitlines()[0][:80]
 
 
+async def _parse_start(interaction: discord.Interaction, day: str, at: str) -> datetime | None:
+    """The start the two strings name, or None once the refusal has been sent."""
+    starts_at = schedule.parse(day, at)
+    if starts_at is None:
+        await interaction.response.send_message(
+            f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
+        )
+    return starts_at
+
+
 def _event_name(session: store.Session) -> str:
     # Discord caps an event name at 100 characters.
     return f"{CLUB_NAME}：{session.topic[:80]}" if session.topic else CLUB_NAME
@@ -140,11 +150,8 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         day, at = self.day.component.value, self.at.component.value
-        starts_at = schedule.parse(day, at)
+        starts_at = await _parse_start(interaction, day, at)
         if starts_at is None:
-            await interaction.response.send_message(
-                f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
-            )
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -413,11 +420,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host: discord.Member,
         topic: str,
     ) -> None:
-        starts_at = schedule.parse(day, at)
+        starts_at = await _parse_start(interaction, day, at)
         if starts_at is None:
-            await interaction.response.send_message(
-                f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
-            )
             return
 
         # Ephemeral: the announcement is what tells the channel.
@@ -647,11 +651,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         session = await self._resolve(interaction, when)
         if session is None:
             return
-        starts_at = schedule.parse(day, at)
+        starts_at = await _parse_start(interaction, day, at)
         if starts_at is None:
-            await interaction.response.send_message(
-                f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
-            )
             return
         if starts_at == session.starts_at:
             await interaction.response.send_message(SAME_TIME, ephemeral=True)
