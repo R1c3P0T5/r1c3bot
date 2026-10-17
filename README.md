@@ -9,6 +9,7 @@ r1c3p0t5 社群經營用的 Discord bot。
 - `/bookclub host <user> [when]` — 換這場的主持人，不影響誰下次輪到
 - `/bookclub skip [when]` — 這場先過，下一場仍然優先
 - `/bookclub topic <text> [when]` — 設定這場的主題
+- `/bookclub move <day> <at> [when]` — 改這場的時間，報名與輪替都留著
 - `/bookclub cancel [when]` — 取消這場，連活動一起撤掉
 - `/bookclub next` — 下一場的時間、主持人、主題與報名人數
 - `/bookclub history [count]` — 過去的場次與主題
@@ -19,7 +20,7 @@ r1c3p0t5 社群經營用的 Discord bot。
 - `/ctf config` — 調整權重門檻、往後看幾天、結束幾天後封存
 
 `[when]` 不給就是下一場。
-`/config`、`/ctf announce`、`/ctf archive`、`/ctf config` 與 `new`、`cancel`、`role` 需要 Manage Server，`host`、`skip`、`topic` 限本場主持人或管理員，其餘不限。
+`/config`、`/ctf announce`、`/ctf archive`、`/ctf config` 與 `new`、`move`、`cancel`、`role` 需要 Manage Server，`host`、`skip`、`topic` 限本場主持人或管理員，其餘不限。
 指令的回覆只有自己看得見，公開訊息一律發在對應頻道。
 
 CTF 揪團的自動部分：

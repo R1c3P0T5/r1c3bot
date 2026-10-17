@@ -23,6 +23,8 @@ PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
 NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
 HOST_ONLY = "這個只有本場主持人或管理員動得了。"
 NO_HOST = "這場還沒有主持人。"
+SAME_TIME = "這場本來就是那個時間。"
+SLOT_TAKEN = "那個時間已經有一場了，先取消那場或者改去別的時間。"
 UNASSIGNED = "未指派"
 
 # What /bookclub new reports for the event and for the announcement.
@@ -630,6 +632,44 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             interaction,
             session,
             f"{clock.stamp(session.starts_at)} 這場的主題定了：**{text}**",
+        )
+
+    @app_commands.command(description="改這場的時間，報名與輪替都留著")
+    @app_commands.guild_only()
+    @app_commands.describe(day="YYYY-MM-DD", at="HH:MM", when="哪一場，不給就是下一場")
+    @app_commands.autocomplete(day=_day_choices, at=_time_choices, when=_session_choices)
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
+    async def move(
+        self, interaction: discord.Interaction, day: str, at: str, when: str | None = None
+    ) -> None:
+        session = await self._resolve(interaction, when)
+        if session is None:
+            return
+        starts_at = schedule.parse(day, at)
+        if starts_at is None:
+            await interaction.response.send_message(
+                f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
+            )
+            return
+        if starts_at == session.starts_at:
+            await interaction.response.send_message(SAME_TIME, ephemeral=True)
+            return
+        # Two sessions cannot share a start, and merging them is not a move.
+        if await store.session(self.db, starts_at) is not None:
+            await interaction.response.send_message(SLOT_TAKEN, ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        was = session.starts_at
+        await store.reschedule(self.db, session.id, starts_at)
+        session = await store.session(self.db, starts_at) or session
+        await self._sync(interaction.guild, session)
+        await self._notify(
+            interaction,
+            session,
+            f"{clock.stamp(was)} 這場改到 {clock.stamp(starts_at)}。\n"
+            "-# 報名與輪替都留著，提醒會按新時間重新發。",
         )
 
     @app_commands.command(description="取消下一場，連活動一起")
