@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import audit, clock, permissions, settings, sync
+from ricebot import audit, clock, permissions, refusal, settings, sync
 from ricebot.bookclub import rotation, schedule
 from ricebot.store import bookclub as store
 from ricebot.store import settings as settings_store
@@ -91,11 +91,6 @@ def _announce_link(channel: discord.TextChannel, session: store.Session) -> str:
     if session.announce_message_id is None:
         return ""
     return f"\n{channel.get_partial_message(session.announce_message_id).jump_url}"
-
-
-def _reason(error: discord.HTTPException) -> str:
-    """The first line of a Discord error; the rest is a JSON body."""
-    return str(error).splitlines()[0][:80]
 
 
 async def _parse_start(interaction: discord.Interaction, day: str, at: str) -> datetime | None:
@@ -308,7 +303,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except discord.HTTPException as error:
             # The session is already saved, so a failed event must not fail the command.
             log.warning("no event for %s: %s", session.starts_at, error)
-            return f"未建立（Discord 回報 {_reason(error)}）"
+            return f"未建立（{refusal.text(error)}）"
 
         await store.set_event(self.db, session.id, event.id)
         log.info("event %s created for %s", event.id, session.starts_at)
@@ -333,7 +328,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             )
         except discord.HTTPException as error:
             log.warning("no announcement for %s: %s", session.starts_at, error)
-            return f"未發布（Discord 回報 {_reason(error)}）"
+            return f"未發布（{refusal.text(error)}）"
 
         # Recorded before reacting, so a failed reaction cannot cause a second post.
         await store.set_announce(self.db, session.id, message.id)
