@@ -74,7 +74,7 @@ def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
     casual = "休閒" if contest.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, contest.format, casual) if part)
     lines = [
-        f"{kind} (weight {contest.weight:.2f})　{_duration_text(contest.finishes_at - contest.starts_at)}"
+        f"{kind} (weight {contest.weight:.2f}) {_duration_text(contest.finishes_at - contest.starts_at)}"
     ]
     if contest.restrictions not in {OPEN, CASUAL, ""}:
         # Its own line, because being unable to enter outranks everything else.
@@ -108,8 +108,8 @@ def _listed(contest: store.Contest, channel: discord.TextChannel | None) -> str:
     if channel is not None and contest.announce_message_id is not None:
         link = channel.get_partial_message(contest.announce_message_id).jump_url
         title = f"[{contest.title}](<{link}>)"
-    where = f"　<#{contest.channel_id}>" if contest.channel_id is not None else ""
-    return f"`{clock.taipei(contest.starts_at):%m/%d %H:%M}`　{title}{where}"
+    where = f" <#{contest.channel_id}>" if contest.channel_id is not None else ""
+    return f"`{clock.taipei(contest.starts_at):%m/%d %H:%M}` {title}{where}"
 
 
 def _announce_text(contest: store.Contest) -> str:
@@ -273,7 +273,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         contests = await store.open_contests(self.db)
         return [
             app_commands.Choice(
-                name=f"{clock.taipei(found.starts_at):%m/%d}　{found.title}"[:100],
+                name=f"{clock.taipei(found.starts_at):%m/%d} {found.title}"[:100],
                 value=str(found.ctftime_id),
             )
             for found in contests
