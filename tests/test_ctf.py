@@ -24,6 +24,19 @@ def contest(ctftime_id: int = 3364, **changed: object) -> Contest:
     return Contest(**{**fields, **changed})  # type: ignore[arg-type]
 
 
+async def test_the_finish_notice_is_claimed_and_released(store) -> None:
+    await ctf.ensure(store, contest())
+
+    await ctf.set_finish_notice(store, 3364, datetime(2026, 10, 25, 14, 0, tzinfo=UTC))
+    claimed = await ctf.contest(store, 3364)
+    await ctf.set_finish_notice(store, 3364, None)
+    released = await ctf.contest(store, 3364)
+
+    assert claimed is not None and released is not None
+    assert claimed.finish_notice_at == datetime(2026, 10, 25, 14, 0, tzinfo=UTC)
+    assert released.finish_notice_at is None
+
+
 async def test_the_archive_warning_is_remembered(store) -> None:
     await ctf.ensure(store, contest())
 

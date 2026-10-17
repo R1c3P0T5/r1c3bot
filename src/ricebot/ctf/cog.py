@@ -354,6 +354,12 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
                 log.exception("contest %s not handled", contest.ctftime_id)
 
         keep = await self._days(Key.CTF_ARCHIVE_DAYS, ARCHIVE_AFTER)
+        for contest in await store.finished(self.db, now):
+            try:
+                await self._wrap_up(guild, contest, keep)
+            except Exception:
+                log.exception("contest %s not wrapped up", contest.ctftime_id)
+
         for contest in await store.finished(self.db, now - keep):
             try:
                 reason = await self._archive(guild, contest)
@@ -516,6 +522,26 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         )
         # Recorded after sending: a repeated warning beats a silenced one.
         await store.warn_archive(self.db, contest.ctftime_id, clock.now())
+
+    async def _wrap_up(self, guild: discord.Guild, contest: store.Contest, keep: timedelta) -> None:
+        """Tell the channel the contest is over and when it closes, once."""
+        if contest.finish_notice_at is not None or contest.channel_id is None:
+            return
+        channel = guild.get_channel(contest.channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        # Claimed before sending, so a failure retries instead of repeating.
+        await store.set_finish_notice(self.db, contest.ctftime_id, clock.now())
+        closes = clock.taipei(contest.finishes_at + keep)
+        try:
+            await channel.send(
+                f"比賽結束！辛苦了🙌\n這個頻道會在 {closes:%m/%d} 收起來，但內容都還會在",
+                allowed_mentions=SILENT,
+            )
+        except discord.HTTPException as error:
+            log.warning("contest %s not wrapped up: %s", contest.ctftime_id, error)
+            await store.set_finish_notice(self.db, contest.ctftime_id, None)
 
     async def _team_channel(
         self, guild: discord.Guild, contest: store.Contest, member: discord.Member
