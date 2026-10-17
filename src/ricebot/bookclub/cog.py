@@ -22,19 +22,22 @@ NOTIFY_ROLE = discord.AllowedMentions(roles=True, users=True)
 # A change of host is worth a notification; a topic or a cancellation is not.
 NOTIFY = discord.AllowedMentions(users=True)
 NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
-NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
-POSTED = "已發布"
-REUSED = "沿用原本那則"
-NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
-IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
-CREATED = "已建立"
-KEPT = "沿用原本那個"
-NO_ASSIGNEE = "未指派"
+NOT_HOST = "這個只有本場主持人或管理員動得了。"
+NO_HOST = "這場還沒有主持人。"
+UNASSIGNED = "未指派"
+
+# What /bookclub new reports about each projection.
+EVENT_CREATED = "已建立"
+EVENT_KEPT = "沿用原本那個"
+EVENT_NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
+EVENT_IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
+ANNOUNCE_POSTED = "已發布"
+ANNOUNCE_KEPT = "沿用原本那則"
+ANNOUNCE_NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
+
 EVENT_NAME = "讀書會"
 # The sign-up list: the reaction is the only record of who is coming.
 RSVP = "🚩"
-NOT_HOST = "這個只有本場主持人或管理員動得了。"
-NO_HOST = "這場還沒有主持人。"
 # Discord has no date picker, so the list stands in for one: 25 consecutive
 # days, which is also the most it will accept in one autocomplete reply.
 DAY_SPAN = 25
@@ -65,7 +68,7 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     lines += [
         f"## 📚 讀書會{f' · {session.topic}' if session.topic else ''}",
         f"{clock.stamp(session.starts_at)}　{clock.stamp(session.starts_at, 'R')}",
-        f"主持人：{_mention(session.host_user_id, NO_ASSIGNEE)}",
+        f"主持人：{_mention(session.host_user_id, UNASSIGNED)}",
     ]
     if session.cancelled_at is not None:
         lines.append("\n**這場取消了**，時間不用留著。下一場排好我再回來喊人。")
@@ -131,7 +134,7 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
             return
         await interaction.response.defer(ephemeral=True)
         host, topic = self.host.component.values[0], self.topic.component.value
-        await self.cog._schedule(interaction, starts_at, host, topic)
+        await self.cog.schedule_session(interaction, starts_at, host, topic)
         # A button is not an app command, so the audit listener never sees it;
         # this is the one path to a session that needs no permission.
         await audit.record(
@@ -263,16 +266,16 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.event_id is not None:
-            return KEPT
+            return EVENT_KEPT
         if session.starts_at <= clock.now():
             # Discord refuses an event in the past, and we can tell without
             # spending a request to be told.
-            return IN_PAST
+            return EVENT_IN_PAST
         channel = await settings.channel(
             self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
         )
         if channel is None:
-            return NO_VOICE
+            return EVENT_NO_VOICE
         try:
             event = await guild.create_scheduled_event(
                 name=_event_name(session),
@@ -290,7 +293,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return f"未建立（Discord 回報 {str(error).splitlines()[0][:80]}）"
         await store.set_event(self.db, session.id, event.id)
         log.info("event %s created for %s", event.id, session.starts_at)
-        return CREATED
+        return EVENT_CREATED
 
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
         """Post the sign-up form, and say what happened.
@@ -300,10 +303,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.announce_message_id is not None:
-            return REUSED
+            return ANNOUNCE_KEPT
         channel = await self._channel(guild)
         if channel is None:
-            return NO_CHANNEL
+            return ANNOUNCE_NO_CHANNEL
         role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         try:
             message = await channel.send(
@@ -320,7 +323,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             await message.add_reaction(RSVP)
         except discord.HTTPException as error:
             log.warning("no %s on announcement %s: %s", RSVP, message.id, error)
-        return POSTED
+        return ANNOUNCE_POSTED
 
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
         """Rewrite the form if it has drifted, and forget it if it is gone.
@@ -354,7 +357,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         except discord.HTTPException as error:
             log.warning("announcement %s not updated: %s", session.announce_message_id, error)
 
-    async def _update(
+    async def _notify(
         self, interaction: discord.Interaction, session: store.Session, text: str
     ) -> None:
         """Confirm privately, and post the update in the book club channel.
@@ -407,9 +410,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Private: the announcement is what tells the channel, so this reply
         # is for the person who scheduled it.
         await interaction.response.defer(ephemeral=True)
-        await self._schedule(interaction, starts_at, host, topic)
+        await self.schedule_session(interaction, starts_at, host, topic)
 
-    async def _schedule(
+    async def schedule_session(
         self,
         interaction: discord.Interaction,
         starts_at: datetime,
@@ -470,7 +473,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         # Suggestions, not a closed set: a time typed by hand still works.
         return [app_commands.Choice(name=at, value=at) for at in TIMES if current in at]
 
-    async def _choices(
+    async def _session_choices(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         """The upcoming sessions, for the `when` option of every command."""
@@ -547,7 +550,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.command(description="換這場的主持人，不影響誰下次輪到")
     @app_commands.guild_only()
     @app_commands.describe(when="哪一場，不給就是下一場")
-    @app_commands.autocomplete(when=_choices)
+    @app_commands.autocomplete(when=_session_choices)
     async def host(
         self, interaction: discord.Interaction, user: discord.Member, when: str | None = None
     ) -> None:
@@ -561,12 +564,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         text = f"{clock.stamp(session.starts_at)} 這場換 {user.mention} 主持。"
         if replaced is not None and replaced != user.id:
             text += f"\n-# 這場算 <@{replaced}> 輪到的，所以 {user.mention} 之後還是會輪到。"
-        await self._update(interaction, session, text)
+        await self._notify(interaction, session, text)
 
     @app_commands.command(description="這場先過，下一場仍然優先")
     @app_commands.guild_only()
     @app_commands.describe(when="哪一場，不給就是下一場")
-    @app_commands.autocomplete(when=_choices)
+    @app_commands.autocomplete(when=_session_choices)
     async def skip(self, interaction: discord.Interaction, when: str | None = None) -> None:
         session = await self._resolve(interaction, when)
         if session is None:
@@ -586,7 +589,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         else:
             note = f"由 <@{host}> 接手。"
         await self._sync(interaction.guild, session)
-        await self._update(
+        await self._notify(
             interaction,
             session,
             f"<@{declined}> 這場先過，{note}\n-# <@{declined}> 下一場還是優先。",
@@ -595,7 +598,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.command(description="設定這場的主題")
     @app_commands.guild_only()
     @app_commands.describe(text="寫進活動名稱與公告", when="哪一場，不給就是下一場")
-    @app_commands.autocomplete(when=_choices)
+    @app_commands.autocomplete(when=_session_choices)
     async def topic(
         self, interaction: discord.Interaction, text: str, when: str | None = None
     ) -> None:
@@ -605,7 +608,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.response.defer(ephemeral=True)
         await store.set_topic(self.db, session.id, text)
         await self._sync(interaction.guild, session)
-        await self._update(
+        await self._notify(
             interaction,
             session,
             f"{clock.stamp(session.starts_at)} 這場的主題定了：**{text}**",
@@ -616,7 +619,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.check(permissions.manager_only)
     @app_commands.describe(when="哪一場，不給就是下一場")
-    @app_commands.autocomplete(when=_choices)
+    @app_commands.autocomplete(when=_session_choices)
     async def cancel(self, interaction: discord.Interaction, when: str | None = None) -> None:
         session = await self._resolve(interaction, when)
         if session is None:
@@ -625,7 +628,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.cancel(self.db, session.id, clock.now())
         cancelled = await self._cancel_event(interaction.guild, session)
         await self._sync(interaction.guild, session)
-        await self._update(
+        await self._notify(
             interaction,
             session,
             f"{clock.stamp(session.starts_at)} 這場取消了"
@@ -645,7 +648,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
         lines = []
         for session in sessions:
-            host = _mention(session.host_user_id, NO_ASSIGNEE)
+            host = _mention(session.host_user_id, UNASSIGNED)
             topic = (session.topic or "—")[:40]
             note = "（已取消）" if session.cancelled_at else ""
             lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}`　{host}　{topic}{note}")
@@ -660,7 +663,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session is None:
             await interaction.response.send_message(NO_SESSION, ephemeral=True)
             return
-        host = _mention(session.host_user_id, NO_ASSIGNEE)
+        host = _mention(session.host_user_id, UNASSIGNED)
         await interaction.response.send_message(
             f"{clock.stamp(session.starts_at)}（{clock.stamp(session.starts_at, 'R')}）\n"
             f"主持人：{host}\n"
@@ -765,7 +768,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         where = f"，在 {voice.mention}" if voice is not None else ""
         await channel.send(
             f"快開始了，{clock.stamp(session.starts_at, 'R')}{where}。\n"
-            f"今天由 {_mention(session.host_user_id, NO_ASSIGNEE)} 帶，"
+            f"今天由 {_mention(session.host_user_id, UNASSIGNED)} 帶，"
             f"{await self._roll_call(channel, session)}"
             f"{_form_link(channel, session)}",
             allowed_mentions=NOTIFY,
@@ -778,7 +781,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         thanks = f"辛苦了 {_mention(session.host_user_id, '主持人')} 🙌"
         await channel.send(
             f"今天的讀書會結束了，{thanks}\n"
-            f"下一棒輪到 {_mention(up_next, NO_ASSIGNEE)}，"
+            f"下一棒輪到 {_mention(up_next, UNASSIGNED)}，"
             f"想好主題就按下面的「{SCHEDULE_LABEL}」把時間訂下來。",
             allowed_mentions=NOTIFY,
             view=ScheduleView(self),
