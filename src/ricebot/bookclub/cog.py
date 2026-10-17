@@ -2,7 +2,7 @@
 
 import logging
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import datetime
 
 import aiosqlite
 import discord
@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ricebot import audit, clock, permissions, refusal, settings, sync
-from ricebot.bookclub import rotation, schedule
+from ricebot.bookclub import messages, rotation, schedule
 from ricebot.store import bookclub as store
 from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
@@ -21,60 +21,13 @@ SILENT = discord.AllowedMentions.none()
 # The announcement pings the role; everything else pings only who it names.
 PING_ROLE = discord.AllowedMentions(everyone=False, roles=True, users=True)
 PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
-NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
-HOST_ONLY = "這個只有本場主持人或管理員動得了。"
-NO_HOST = "這場還沒有主持人。"
-SAME_TIME = "這場本來就是那個時間。"
-SLOT_TAKEN = "那個時間已經有一場了，先取消那場或者改去別的時間。"
-UNASSIGNED = "未指派"
-
-# What /bookclub new reports for the event and for the announcement.
-EVENT_CREATED = "已建立"
-EVENT_KEPT = "沿用原本那個"
-EVENT_NO_VOICE = "未建立（還沒設定讀書會語音頻道，請管理員用 `/config` 設定）"
-EVENT_IN_PAST = "未建立（不能建立過去的活動，Discord 不接受）"
-ANNOUNCE_POSTED = "已發布"
-ANNOUNCE_KEPT = "沿用原本那則"
-ANNOUNCE_NO_CHANNEL = "未發布（還沒設定讀書會公告頻道，請管理員用 `/config` 設定）"
-
-CLUB_NAME = "讀書會"
-# Reacting with this emoji signs up, and the reactions are the whole list.
-RSVP = "🚩"
 # Discord has no date picker, and autocomplete offers at most 25 choices.
 DAY_SPAN = 25
 # Half hours from 08:00 to the usual 20:00 start, 25 of them.
 TIMES = tuple(f"{t // 60:02d}:{t % 60:02d}" for t in range(8 * 60, 20 * 60 + 1, 30))
-BAD_TIME = "日期要寫成 YYYY-MM-DD、時間寫成 HH:MM。"
 # Discord sends only the custom_id back, so a button that outlives the
 # process is re-registered under the same one at startup.
 SCHEDULE_ID = "bookclub:schedule-next"
-SCHEDULE_LABEL = "排下一場"
-
-
-_WEEKDAYS = "一二三四五六日"
-
-
-def _weekday(day: date) -> str:
-    return f"週{_WEEKDAYS[day.weekday()]}"
-
-
-def _mention(user_id: int | None, fallback: str) -> str:
-    return f"<@{user_id}>" if user_id is not None else fallback
-
-
-def _announce_text(role_id: int | None, session: store.Session) -> str:
-    """The announcement: the session's host, topic, time and sign-up prompt."""
-    lines = [] if role_id is None else [f"<@&{role_id}>"]
-    lines += [
-        f"## 📚 讀書會{f' · {session.topic}' if session.topic else ''}",
-        f"{clock.stamp(session.starts_at)} {clock.stamp(session.starts_at, 'R')}",
-        f"主持人：{_mention(session.host_user_id, UNASSIGNED)}",
-    ]
-    if session.cancelled_at is not None:
-        lines.append("\n**這場取消了**，時間不用留著。下一場排好我再回來喊人。")
-    else:
-        lines.append(f"\n想來的按個 {RSVP}，開始前會提醒你。")
-    return "\n".join(lines)
 
 
 def _ping_host(session: store.Session) -> discord.AllowedMentions:
@@ -98,25 +51,17 @@ async def _parse_start(interaction: discord.Interaction, day: str, at: str) -> d
     starts_at = schedule.parse(day, at)
     if starts_at is None:
         await interaction.response.send_message(
-            f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
+            f"{messages.BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
         )
     return starts_at
 
 
-def _event_name(session: store.Session) -> str:
-    # Discord caps an event name at 100 characters.
-    return f"{CLUB_NAME}：{session.topic[:80]}" if session.topic else CLUB_NAME
-
-
-def _event_description(guild: discord.Guild, session: store.Session) -> str:
-    lines = []
-    if session.host_user_id is not None:
-        member = guild.get_member(session.host_user_id)
-        # An event description is plain text, so a mention would not render.
-        lines.append(f"主持人：{member.display_name if member else session.host_user_id}")
-    if session.topic:
-        lines.append(f"主題：{session.topic}")
-    return "\n".join(lines)
+def _host_name(guild: discord.Guild, session: store.Session) -> str | None:
+    """The host's display name, for the text that cannot carry a mention."""
+    if session.host_user_id is None:
+        return None
+    member = guild.get_member(session.host_user_id)
+    return member.display_name if member else str(session.host_user_id)
 
 
 class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
@@ -170,7 +115,7 @@ class ScheduleView(discord.ui.View):
         self.cog = cog
 
     @discord.ui.button(
-        label=SCHEDULE_LABEL,
+        label=messages.SCHEDULE_LABEL,
         emoji="📅",
         style=discord.ButtonStyle.primary,
         custom_id=SCHEDULE_ID,
@@ -280,20 +225,20 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.event_id is not None:
-            return EVENT_KEPT
+            return messages.EVENT_KEPT
         if session.starts_at <= clock.now():
             # Discord refuses an event in the past.
-            return EVENT_IN_PAST
+            return messages.EVENT_IN_PAST
 
         channel = await settings.channel(
             self.db, guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
         )
         if channel is None:
-            return EVENT_NO_VOICE
+            return messages.EVENT_NO_VOICE
         try:
             event = await guild.create_scheduled_event(
-                name=_event_name(session),
-                description=_event_description(guild, session),
+                name=messages.event_name(session.topic),
+                description=messages.event_description(_host_name(guild, session), session.topic),
                 start_time=session.starts_at,
                 end_time=session.starts_at + schedule.DURATION,
                 entity_type=discord.EntityType.voice,
@@ -307,7 +252,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
 
         await store.set_event(self.db, session.id, event.id)
         log.info("event %s created for %s", event.id, session.starts_at)
-        return EVENT_CREATED
+        return messages.EVENT_CREATED
 
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
         """Post the announcement, and say what happened.
@@ -316,15 +261,15 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.announce_message_id is not None:
-            return ANNOUNCE_KEPT
+            return messages.ANNOUNCE_KEPT
         channel = await self._channel(guild)
         if channel is None:
-            return ANNOUNCE_NO_CHANNEL
+            return messages.ANNOUNCE_NO_CHANNEL
 
         role_id = await settings_store.get_id(self.db, Key.BOOKCLUB_ROLE)
         try:
             message = await channel.send(
-                _announce_text(role_id, session), allowed_mentions=PING_ROLE
+                messages.announce(session, role_id), allowed_mentions=PING_ROLE
             )
         except discord.HTTPException as error:
             log.warning("no announcement for %s: %s", session.starts_at, error)
@@ -334,10 +279,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_announce(self.db, session.id, message.id)
         log.info("announcement %s posted for %s", message.id, session.starts_at)
         try:
-            await message.add_reaction(RSVP)
+            await message.add_reaction(messages.RSVP)
         except discord.HTTPException as error:
-            log.warning("no %s on announcement %s: %s", RSVP, message.id, error)
-        return ANNOUNCE_POSTED
+            log.warning("no %s on announcement %s: %s", messages.RSVP, message.id, error)
+        return messages.ANNOUNCE_POSTED
 
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
         """Rewrite the announcement if it has drifted, and forget it if it is gone.
@@ -355,9 +300,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if not await sync.message(
             channel,
             session.announce_message_id,
-            content=_announce_text(role_id, session),
+            content=messages.announce(session, role_id),
             mentions=PING_ROLE,
-            rsvp=RSVP if session.cancelled_at is None else None,
+            rsvp=messages.RSVP if session.cancelled_at is None else None,
         ):
             await store.set_announce(self.db, session.id, None)
 
@@ -459,7 +404,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """The next few weeks, day by day, filtered by what has been typed."""
         today = clock.taipei(clock.now()).date()
         return [
-            app_commands.Choice(name=f"{day:%m/%d}（{_weekday(day)}）", value=day.isoformat())
+            app_commands.Choice(name=messages.day_choice(day), value=day.isoformat())
             for day in schedule.upcoming_days(today, DAY_SPAN)
             if current in day.isoformat()
         ]
@@ -507,10 +452,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """
         session = await self._target(when)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            await interaction.response.send_message(messages.NO_SESSION, ephemeral=True)
             return None
         if not self._may_manage(interaction, session):
-            await interaction.response.send_message(HOST_ONLY, ephemeral=True)
+            await interaction.response.send_message(messages.HOST_ONLY, ephemeral=True)
             return None
         return session
 
@@ -521,8 +466,8 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if not await sync.event(
             guild,
             session.event_id,
-            name=_event_name(session),
-            description=_event_description(guild, session),
+            name=messages.event_name(session.topic),
+            description=messages.event_description(_host_name(guild, session), session.topic),
             starts_at=session.starts_at,
             ends_at=session.starts_at + schedule.DURATION,
         ):
@@ -572,7 +517,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if session is None:
             return
         if session.host_user_id is None:
-            await interaction.response.send_message(NO_HOST, ephemeral=True)
+            await interaction.response.send_message(messages.NO_HOST, ephemeral=True)
             return
         await interaction.response.defer(ephemeral=True)
 
@@ -628,11 +573,11 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if starts_at is None:
             return
         if starts_at == session.starts_at:
-            await interaction.response.send_message(SAME_TIME, ephemeral=True)
+            await interaction.response.send_message(messages.SAME_TIME, ephemeral=True)
             return
         # starts_at_utc is UNIQUE; this only puts a message in front of the constraint.
         if await store.session(self.db, starts_at) is not None:
-            await interaction.response.send_message(SLOT_TAKEN, ephemeral=True)
+            await interaction.response.send_message(messages.SLOT_TAKEN, ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -675,16 +620,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     ) -> None:
         sessions = await store.history(self.db, self._cutoff(), count)
         if not sessions:
-            await interaction.response.send_message("還沒有結束的場次。", ephemeral=True)
+            await interaction.response.send_message(messages.NO_HISTORY, ephemeral=True)
             return
-        lines = []
-        for session in sessions:
-            host = _mention(session.host_user_id, UNASSIGNED)
-            topic = (session.topic or "—")[:40]
-            note = "（已取消）" if session.cancelled_at else ""
-            lines.append(f"`{clock.taipei(session.starts_at):%Y/%m/%d}` {host} {topic}{note}")
         await interaction.response.send_message(
-            "\n".join(lines), ephemeral=True, allowed_mentions=SILENT
+            "\n".join(messages.history_line(session) for session in sessions),
+            ephemeral=True,
+            allowed_mentions=SILENT,
         )
 
     @app_commands.command(description="下一場的時間、主持人、主題與報名人數")
@@ -692,7 +633,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def next(self, interaction: discord.Interaction) -> None:
         session = await self._target(None)
         if session is None:
-            await interaction.response.send_message(NO_SESSION, ephemeral=True)
+            await interaction.response.send_message(messages.NO_SESSION, ephemeral=True)
             return
         # Deferred: the sign-up list is a fetch of the announcement.
         await interaction.response.defer(ephemeral=True)
@@ -701,7 +642,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         link = "" if channel is None else _announce_link(channel, session)
         await interaction.followup.send(
             f"{clock.stamp(session.starts_at)}（{clock.stamp(session.starts_at, 'R')}）\n"
-            f"主持人：{_mention(session.host_user_id, UNASSIGNED)}\n"
+            f"主持人：{messages.mention(session.host_user_id)}\n"
             f"主題：{session.topic or '未設定'}\n"
             f"報名：{len(signed_up)} 人{link}",
             ephemeral=True,
@@ -790,7 +731,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             # empty until it does.
             return []
         for reaction in message.reactions:
-            if str(reaction.emoji) == RSVP:
+            if str(reaction.emoji) == messages.RSVP:
                 return [user.id async for user in reaction.users() if not user.bot]
         return []
 
@@ -812,7 +753,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         where = f"，在 {voice.mention}" if voice is not None else ""
         await channel.send(
             f"快開始了，{clock.stamp(session.starts_at, 'R')}{where}。\n"
-            f"今天由 {_mention(session.host_user_id, UNASSIGNED)} 帶，"
+            f"今天由 {messages.mention(session.host_user_id)} 帶，"
             f"{await self._roll_call(channel, session)}"
             f"{_announce_link(channel, session)}",
             allowed_mentions=_ping_host(session),
@@ -825,7 +766,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         )
         signed_up = await self._attendees(channel, session)
         # The host usually signed up too, and one mention each is enough.
-        called = [_mention(session.host_user_id, UNASSIGNED)]
+        called = [messages.mention(session.host_user_id)]
         called += [f"<@{user_id}>" for user_id in signed_up if user_id != session.host_user_id]
         where = f" 來 {voice.mention}" if voice is not None else ""
         await channel.send(f"讀書會開始了！{' '.join(called)}{where}", allowed_mentions=PING_USERS)
@@ -834,17 +775,14 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         """Thank the host, and ask whoever is up next for a date."""
         candidates = await self._candidates(channel.guild)
         up_next = None if candidates is None else rotation.next_host(candidates)
-        thanks = f"辛苦了 {_mention(session.host_user_id, '主持人')} 🙌"
+        thanks = f"辛苦了 {messages.mention(session.host_user_id, '主持人')} 🙌"
         await channel.send(
             f"今天的讀書會結束了，{thanks}\n"
-            f"下一棒輪到 {_mention(up_next, UNASSIGNED)}，"
-            f"想好主題就按下面的「{SCHEDULE_LABEL}」把時間訂下來。",
+            f"下一棒輪到 {messages.mention(up_next)}，"
+            f"想好主題就按下面的「{messages.SCHEDULE_LABEL}」把時間訂下來。",
             allowed_mentions=PING_USERS,
             view=ScheduleView(self),
         )
 
     async def _roll_call(self, channel: discord.TextChannel, session: store.Session) -> str:
-        attendees = await self._attendees(channel, session)
-        if not attendees:
-            return f"目前還沒有人按 {RSVP}，臨時加入也沒問題。"
-        return "報名的有 " + " ".join(f"<@{user_id}>" for user_id in attendees) + "，到時候見。"
+        return messages.roll_call(await self._attendees(channel, session))
