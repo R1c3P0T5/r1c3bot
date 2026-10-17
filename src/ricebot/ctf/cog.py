@@ -28,12 +28,16 @@ CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
 NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` 設定"
 NOTHING_OPEN = "現在沒有在追蹤的比賽。"
+NOT_TRACKED = "找不到這場。在它的討論頻道裡執行，或用選單指定一場。"
+ARCHIVED_ALREADY = "這場已經封存過了。"
 ANNOUNCE_POSTED = "已發布"
 ANNOUNCE_MISSING = "未發布，原因在 log"
 EVENT_CREATED = "已建立"
 EVENT_MISSING = "未建立（已經開始，或 Discord 拒絕）"
 # A reply takes 2000 characters, and a line with a link approaches a hundred.
 LISTED = 15
+# Discord accepts at most this many autocomplete choices.
+CHOICES = 25
 NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config` 設定"
 # A guild event's description takes 1000 characters, markup and all.
 EVENT_LIMIT = 1000
@@ -183,6 +187,54 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             ephemeral=True,
             allowed_mentions=SILENT,
         )
+
+    async def _contest_choices(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """The contests still being looked after, for the `contest` option."""
+        contests = await store.open_contests(self.db)
+        return [
+            app_commands.Choice(
+                name=f"{clock.taipei(found.starts_at):%m/%d}　{found.title}"[:100],
+                value=str(found.ctftime_id),
+            )
+            for found in contests
+            if current.lower() in found.title.lower()
+        ][:CHOICES]
+
+    async def _chosen(self, contest: str | None, channel_id: int | None) -> store.Contest | None:
+        """The contest a command acts on: the chosen one, or this channel's."""
+        if contest is None:
+            open_now = await store.open_contests(self.db)
+            return next((found for found in open_now if found.channel_id == channel_id), None)
+        try:
+            return await store.contest(self.db, int(contest))
+        except ValueError:
+            return None
+
+    @app_commands.command(description="手動封存一場比賽的討論頻道")
+    @app_commands.guild_only()
+    @app_commands.describe(contest="哪一場，不給就是現在這個頻道")
+    @app_commands.autocomplete(contest=_contest_choices)
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
+    async def archive(self, interaction: discord.Interaction, contest: str | None = None) -> None:
+        found = await self._chosen(contest, interaction.channel_id)
+        if found is None:
+            await interaction.response.send_message(NOT_TRACKED, ephemeral=True)
+            return
+        if found.archived_at is not None:
+            await interaction.response.send_message(ARCHIVED_ALREADY, ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        reason = await self._archive(interaction.guild, found)
+        done = (
+            "這場沒有討論頻道，直接記成封存。"
+            if found.channel_id is None
+            else f"**{found.title}** 的頻道封存了。"
+        )
+        await interaction.followup.send(reason or done, ephemeral=True, allowed_mentions=SILENT)
 
     @tasks.loop(hours=6)
     async def _tick(self) -> None:
