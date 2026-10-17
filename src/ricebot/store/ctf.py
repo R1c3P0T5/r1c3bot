@@ -32,6 +32,7 @@ class Contest:
     guild_event_id: int | None = None
     archived_at: datetime | None = None
     archive_warned_at: datetime | None = None
+    finish_notice_at: datetime | None = None
 
 
 def _contest(row: aiosqlite.Row) -> Contest:
@@ -55,6 +56,7 @@ def _contest(row: aiosqlite.Row) -> Contest:
         guild_event_id=row["event_id"],
         archived_at=db.parse_moment(row["archived_at"]),
         archive_warned_at=db.parse_moment(row["archive_warned_at"]),
+        finish_notice_at=db.parse_moment(row["finish_notice_at"]),
     )
 
 
@@ -161,6 +163,15 @@ async def set_guild_event(
     """Record the guild event, or forget it with None so a later pass recreates it."""
     await db.execute(
         "UPDATE ctf_events SET event_id = ? WHERE ctftime_id = ?", (guild_event_id, ctftime_id)
+    )
+    await db.commit()
+
+
+async def set_finish_notice(db: aiosqlite.Connection, ctftime_id: int, at: datetime | None) -> None:
+    """Claim the one notice that the contest is over, or let it go with None."""
+    await db.execute(
+        "UPDATE ctf_events SET finish_notice_at = ? WHERE ctftime_id = ?",
+        (None if at is None else at.isoformat(), ctftime_id),
     )
     await db.commit()
 
