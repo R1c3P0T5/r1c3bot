@@ -18,9 +18,8 @@ log = logging.getLogger(__name__)
 SILENT = discord.AllowedMentions.none()
 # The sign-up list: pressing it is what opens the channel.
 RSVP = "🚩"
-# CTFtime's restrictions. Open is every contest that gets past the filter, so
-# printing it is noise; Casual says how serious it is rather than who may
-# enter, and the rest decide whether a reader can enter at all.
+# CTFtime's restrictions. Every announced contest is Open, so printing it is
+# noise; Casual says how serious it is, not who may enter.
 OPEN = "Open"
 CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
@@ -39,6 +38,7 @@ def _length(span: timedelta) -> str:
 
 def _facts(event: store.Event, emphasis: str = "") -> list[str]:
     """What the contest is, for the message and for the event alike."""
+    # wanted() drops onsite contests, so today every row takes the online branch.
     where = f"實體（{event.location}）" if event.onsite else "線上"
     casual = "休閒" if event.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, event.format, casual) if part)
@@ -57,9 +57,8 @@ def _summary(event: store.Event) -> str:
     lines = [f"## {event.title}", *_facts(event, "**")]
     # Angle brackets so two links do not become two embeds.
     lines.append(f"[官網](<{event.url}>) ‧ [CTFtime](<{event.page}>)")
-    # The times last and apart: rendered by the client they are long strings,
-    # and above the facts they crowd them out. The short style drops the
-    # weekday, which the day and the duration above already imply.
+    # The times go last: the client renders each as some 60 characters, which
+    # above the facts would crowd them out. The short style drops the weekday.
     lines += [
         "",
         (
@@ -125,9 +124,8 @@ class CtfCog(commands.Cog):
                 await store.ensure(self.db, contest)
             except Exception:
                 log.exception("contest %s not recorded", contest.id)
-        # Everything still open, not only what this pass listed: a contest
-        # that has started, or has dropped out of the window, still has an
-        # announcement and an event to keep in step.
+        # Everything still open, not only what this pass listed: a contest that
+        # has started still has an announcement and an event to keep in step.
         for event in await store.open_events(self.db):
             try:
                 await self._reconcile(guild, event)
@@ -346,8 +344,7 @@ class CtfCog(commands.Cog):
         if category is None:
             return
         try:
-            # The member overwrites stay, so the people who were in it keep
-            # reading it; denying send on @everyone is what they inherit.
+            # Member overwrites stay, so whoever was in it still reads it.
             await channel.edit(category=category)
             await channel.set_permissions(
                 guild.default_role, view_channel=False, send_messages=False

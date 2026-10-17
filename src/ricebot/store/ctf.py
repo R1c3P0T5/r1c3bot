@@ -145,6 +145,7 @@ async def set_announce(db: aiosqlite.Connection, ctftime_id: int, message_id: in
 
 
 async def set_channel(db: aiosqlite.Connection, ctftime_id: int, channel_id: int | None) -> None:
+    """Record the discussion channel, or forget it with None so the next 🚩 opens one."""
     await db.execute(
         "UPDATE ctf_events SET channel_id = ? WHERE ctftime_id = ?", (channel_id, ctftime_id)
     )
@@ -152,6 +153,7 @@ async def set_channel(db: aiosqlite.Connection, ctftime_id: int, channel_id: int
 
 
 async def set_guild_event(db: aiosqlite.Connection, ctftime_id: int, event_id: int | None) -> None:
+    """Record the guild event, or forget it with None so a later pass recreates it."""
     await db.execute(
         "UPDATE ctf_events SET event_id = ? WHERE ctftime_id = ?", (event_id, ctftime_id)
     )
