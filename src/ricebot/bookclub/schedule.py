@@ -22,6 +22,7 @@ class Reminder(StrEnum):
 
     REMIND = "remind"
     STARTING = "starting"
+    STARTED = "started"
     FOLLOWUP = "followup"
 
 
@@ -29,6 +30,7 @@ class Reminder(StrEnum):
 OFFSETS: Mapping[Reminder, timedelta] = {
     Reminder.REMIND: -timedelta(days=1),
     Reminder.STARTING: -timedelta(hours=1),
+    Reminder.STARTED: timedelta(0),
     Reminder.FOLLOWUP: DURATION,
 }
 

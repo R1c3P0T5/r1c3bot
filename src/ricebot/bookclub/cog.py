@@ -18,8 +18,8 @@ log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
 # The announcement pings the role; everything else pings only who it names.
-PING_ROLE = discord.AllowedMentions(roles=True, users=True)
-PING_USERS = discord.AllowedMentions(users=True)
+PING_ROLE = discord.AllowedMentions(everyone=False, roles=True, users=True)
+PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
 NO_SESSION = "現在沒有排定的場次，要不要用 `/bookclub new` 開一場？"
 HOST_ONLY = "這個只有本場主持人或管理員動得了。"
 NO_HOST = "這場還沒有主持人。"
@@ -72,6 +72,15 @@ def _announce_text(role_id: int | None, session: store.Session) -> str:
     else:
         lines.append(f"\n想來的按個 {RSVP}，開始前會提醒你。")
     return "\n".join(lines)
+
+
+def _ping_host(session: store.Session) -> discord.AllowedMentions:
+    """Notify the host alone, leaving the other mentions to render quietly."""
+    if session.host_user_id is None:
+        return SILENT
+    return discord.AllowedMentions(
+        everyone=False, roles=False, users=[discord.Object(id=session.host_user_id)]
+    )
 
 
 def _announce_link(channel: discord.TextChannel, session: store.Session) -> str:
@@ -175,6 +184,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         self._senders = {
             schedule.Reminder.REMIND: self._remind,
             schedule.Reminder.STARTING: self._starting,
+            schedule.Reminder.STARTED: self._started,
             schedule.Reminder.FOLLOWUP: self._followup,
         }
 
@@ -771,8 +781,20 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             f"今天由 {_mention(session.host_user_id, UNASSIGNED)} 帶，"
             f"{await self._roll_call(channel, session)}"
             f"{_announce_link(channel, session)}",
-            allowed_mentions=PING_USERS,
+            allowed_mentions=_ping_host(session),
         )
+
+    async def _started(self, channel: discord.TextChannel, session: store.Session) -> None:
+        """Call the host and everyone signed up into the voice channel."""
+        voice = await settings.channel(
+            self.db, channel.guild, Key.BOOKCLUB_VOICE_CHANNEL, discord.VoiceChannel
+        )
+        signed_up = await self._attendees(channel, session)
+        # The host usually signed up too, and one mention each is enough.
+        called = [_mention(session.host_user_id, UNASSIGNED)]
+        called += [f"<@{user_id}>" for user_id in signed_up if user_id != session.host_user_id]
+        where = f" 來 {voice.mention}" if voice is not None else ""
+        await channel.send(f"讀書會開始了！{' '.join(called)}{where}", allowed_mentions=PING_USERS)
 
     async def _followup(self, channel: discord.TextChannel, session: store.Session) -> None:
         """Thank the host, and ask whoever is up next for a date."""
