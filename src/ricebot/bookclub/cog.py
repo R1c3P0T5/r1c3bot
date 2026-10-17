@@ -672,12 +672,12 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _tick(self) -> None:
         """Keep the events in step with the database and send what is due."""
         try:
-            await self._pass()
+            await self._sweep()
         except Exception:
             # A failure here would stop the loop for good.
-            log.exception("the bookclub pass failed")
+            log.exception("the bookclub sweep failed")
 
-    async def _pass(self) -> None:
+    async def _sweep(self) -> None:
         guild = self.bot.get_guild(self.guild_id)
         if guild is None:
             return
