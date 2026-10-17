@@ -22,8 +22,8 @@ SILENT = discord.AllowedMentions.none()
 PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
 # Reacting with this emoji opens the discussion channel.
 RSVP = "🚩"
-# CTFtime's restriction values. Open is not printed, and Casual marks a
-# relaxed contest rather than a closed one.
+# CTFtime's restriction values. Open is not printed, and Casual still lets
+# anyone enter.
 OPEN = "Open"
 CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}

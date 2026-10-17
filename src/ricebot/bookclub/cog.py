@@ -657,7 +657,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if starts_at == session.starts_at:
             await interaction.response.send_message(SAME_TIME, ephemeral=True)
             return
-        # Two sessions cannot share a start, and merging them is not a move.
+        # starts_at_utc is UNIQUE; this only puts a message in front of the constraint.
         if await store.session(self.db, starts_at) is not None:
             await interaction.response.send_message(SLOT_TAKEN, ephemeral=True)
             return
