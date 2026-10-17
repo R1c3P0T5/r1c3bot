@@ -27,3 +27,13 @@ async def test_keys_are_independent(store) -> None:
 
     assert await settings.get_id(store, Key.CTF_CATEGORY) == 1
     assert await settings.get_id(store, Key.CTF_ARCHIVE_CATEGORY) == 2
+
+
+async def test_a_number_comes_back_as_a_float(store) -> None:
+    await settings.put(store, Key.CTF_WEIGHT_FLOOR, "35.39")
+
+    assert await settings.get_float(store, Key.CTF_WEIGHT_FLOOR) == 35.39
+
+
+async def test_a_number_never_set_is_none(store) -> None:
+    assert await settings.get_float(store, Key.CTF_LOOKAHEAD_DAYS) is None
