@@ -67,8 +67,7 @@ def _host_name(guild: discord.Guild, session: store.Session) -> str | None:
 class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
     """The options of /bookclub new, for members who cannot run it.
 
-    A modal has no autocomplete, so the date and the time are typed rather
-    than picked from the lists the command offers.
+    A modal has no autocomplete, so the date and the time are typed.
     """
 
     day = discord.ui.Label(
@@ -285,8 +284,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
         """Rewrite the announcement if it has drifted, and forget it if it is gone.
 
-        Only a fetch notices one deleted by hand, so the id alone never counts
-        as an announcement that exists. The row must already be current.
+        The row must already be current; sync.message says why this fetches.
         """
         if session.announce_message_id is None:
             return
@@ -573,7 +571,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         if starts_at == session.starts_at:
             await interaction.response.send_message(messages.SAME_TIME, ephemeral=True)
             return
-        # starts_at_utc is UNIQUE; this only puts a message in front of the constraint.
+        # starts_at_utc is UNIQUE; checking first lets the refusal name the reason.
         if await store.session(self.db, starts_at) is not None:
             await interaction.response.send_message(messages.SLOT_TAKEN, ephemeral=True)
             return
