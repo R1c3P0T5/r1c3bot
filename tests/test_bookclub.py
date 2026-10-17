@@ -243,7 +243,6 @@ async def test_a_moved_session_keeps_its_row(store) -> None:
 
     assert await bookclub.session(store, at(16)) is None
     moved = await bookclub.session(store, at(23))
-    assert moved is not None
     assert (moved.id, moved.topic) == (created.id, "SQLMap Essentials")
 
 
