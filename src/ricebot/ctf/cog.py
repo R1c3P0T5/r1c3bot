@@ -482,11 +482,12 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             return
 
         description = _event_description(contest)
-        if (scheduled.name, scheduled.description or "", scheduled.start_time) == (
-            contest.title[:100],
-            description,
-            contest.starts_at,
-        ):
+        if (
+            scheduled.name,
+            scheduled.description or "",
+            scheduled.start_time,
+            scheduled.end_time,
+        ) == (contest.title[:100], description, contest.starts_at, contest.finishes_at):
             return
 
         try:
