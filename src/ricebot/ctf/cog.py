@@ -12,6 +12,7 @@ from discord.ext import commands, tasks
 from ricebot import clock, permissions, settings
 from ricebot.ctf import ctftime
 from ricebot.store import ctf as store
+from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
 
 log = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` �
 NOTHING_OPEN = "現在沒有在追蹤的比賽。"
 NOT_TRACKED = "找不到這場。在它的討論頻道裡執行，或用選單指定一場。"
 ARCHIVED_ALREADY = "這場已經封存過了。"
+BAD_NUMBER = "三個欄位都要是數字，而且在標示的範圍內。"
 ANNOUNCE_POSTED = "已發布"
 ANNOUNCE_MISSING = "未發布，原因在 log"
 EVENT_CREATED = "已建立"
@@ -43,6 +45,15 @@ NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config`
 EVENT_LIMIT = 1000
 # Long enough for the write-ups to be written in the channel before it goes.
 ARCHIVE_AFTER = timedelta(days=2)
+
+
+def _bounded(text: str, low: float, high: float) -> float | None:
+    """The number the text holds when it is inside the bounds, else None."""
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    return value if low <= value <= high else None
 
 
 def _reason(error: discord.HTTPException) -> str:
@@ -121,6 +132,50 @@ def _event_description(contest: store.Contest) -> str:
     return f"{head}\n\n{blurb}" if blurb else head
 
 
+class TuningModal(discord.ui.Modal, title="CTF 篩選與封存"):
+    """The three numbers the sweep reads, prefilled with what it reads now."""
+
+    floor = discord.ui.Label(
+        text="權重門檻（-1 到 100）",
+        description="比賽的 weight 要大於這個數字；設 -1 連未評分的也收",
+        component=discord.ui.TextInput(max_length=6),
+    )
+    lookahead = discord.ui.Label(
+        text="往後看幾天（1 到 60）",
+        description="看得愈遠，愈容易吃掉伺服器的 100 個活動額度",
+        component=discord.ui.TextInput(max_length=2),
+    )
+    keep = discord.ui.Label(
+        text="結束後幾天封存（0 到 60）",
+        component=discord.ui.TextInput(max_length=2),
+    )
+
+    def __init__(self, cog: "CtfCog", floor: float, lookahead: timedelta, keep: timedelta) -> None:
+        super().__init__()
+        self.cog = cog
+        self.floor.component.default = f"{floor:g}"
+        self.lookahead.component.default = str(lookahead.days)
+        self.keep.component.default = str(keep.days)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        floor = _bounded(self.floor.component.value, -1, 100)
+        lookahead = _bounded(self.lookahead.component.value, 1, 60)
+        keep = _bounded(self.keep.component.value, 0, 60)
+        if floor is None or lookahead is None or keep is None:
+            # All or nothing: half a setting written is worse than none.
+            await interaction.response.send_message(BAD_NUMBER, ephemeral=True)
+            return
+
+        await settings_store.put(self.cog.db, Key.CTF_WEIGHT_FLOOR, f"{floor:g}")
+        await settings_store.put(self.cog.db, Key.CTF_LOOKAHEAD_DAYS, f"{lookahead:g}")
+        await settings_store.put(self.cog.db, Key.CTF_ARCHIVE_DAYS, f"{keep:g}")
+        await interaction.response.send_message(
+            f"權重門檻 **{floor:g}**，往後看 **{lookahead:g}** 天，結束 **{keep:g}** 天後封存。\n"
+            "-# 下一輪掃描（最多 6 小時後）生效。",
+            ephemeral=True,
+        )
+
+
 class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
     def __init__(self, bot: commands.Bot, db: aiosqlite.Connection, guild_id: int) -> None:
         self.bot = bot
@@ -139,6 +194,29 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         self, interaction: discord.Interaction, error: app_commands.AppCommandError
     ) -> None:
         await permissions.on_error(interaction, error)
+
+    async def _weight_floor(self) -> float:
+        stored = await settings_store.get_float(self.db, Key.CTF_WEIGHT_FLOOR)
+        return ctftime.WEIGHT_FLOOR if stored is None else stored
+
+    async def _days(self, key: Key, fallback: timedelta) -> timedelta:
+        """A setting kept in days, falling back to the constant it overrides."""
+        stored = await settings_store.get_float(self.db, key)
+        return fallback if stored is None else timedelta(days=stored)
+
+    @app_commands.command(name="config", description="調整篩選門檻與封存時間")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    @app_commands.check(permissions.manager_only)
+    async def config(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(
+            TuningModal(
+                self,
+                await self._weight_floor(),
+                await self._days(Key.CTF_LOOKAHEAD_DAYS, ctftime.LOOKAHEAD),
+                await self._days(Key.CTF_ARCHIVE_DAYS, ARCHIVE_AFTER),
+            )
+        )
 
     @app_commands.command(description="接下來追蹤中的比賽")
     @app_commands.guild_only()
@@ -250,14 +328,18 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if guild is None:
             return
         now = clock.now()
+        lookahead = await self._days(Key.CTF_LOOKAHEAD_DAYS, ctftime.LOOKAHEAD)
 
         try:
-            listed = await ctftime.upcoming(self.http, now=now)
+            listed = await ctftime.upcoming(self.http, now=now, within=lookahead)
         except (httpx.HTTPError, ValueError) as error:
             # A CTFtime outage is not ours to fix; the next pass asks again.
             log.warning("CTFtime not read: %s", error)
             listed = []
-        for found in ctftime.wanted(listed, now=now):
+        wanted = ctftime.wanted(
+            listed, now=now, within=lookahead, weight_floor=await self._weight_floor()
+        )
+        for found in wanted:
             try:
                 await store.ensure(self.db, found)
             except Exception:
@@ -271,7 +353,8 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             except Exception:
                 log.exception("contest %s not handled", contest.ctftime_id)
 
-        for contest in await store.finished(self.db, now - ARCHIVE_AFTER):
+        keep = await self._days(Key.CTF_ARCHIVE_DAYS, ARCHIVE_AFTER)
+        for contest in await store.finished(self.db, now - keep):
             try:
                 reason = await self._archive(guild, contest)
                 if reason is not None:

@@ -14,6 +14,9 @@ class Key(StrEnum):
     CTF_ANNOUNCE_CHANNEL = "ctf_announce_channel_id"
     CTF_CATEGORY = "ctf_category_id"
     CTF_ARCHIVE_CATEGORY = "ctf_archive_category_id"
+    CTF_WEIGHT_FLOOR = "ctf_weight_floor"
+    CTF_LOOKAHEAD_DAYS = "ctf_lookahead_days"
+    CTF_ARCHIVE_DAYS = "ctf_archive_days"
 
 
 async def get(db: aiosqlite.Connection, key: Key) -> str | None:
@@ -39,3 +42,9 @@ async def get_id(db: aiosqlite.Connection, key: Key) -> int | None:
 
 async def put_id(db: aiosqlite.Connection, key: Key, value: int) -> None:
     await put(db, key, str(value))
+
+
+async def get_float(db: aiosqlite.Connection, key: Key) -> float | None:
+    """The setting as a number, or None when unset."""
+    value = await get(db, key)
+    return None if value is None else float(value)
