@@ -8,10 +8,9 @@ import discord
 import httpx
 from discord.ext import commands, tasks
 
-from ricebot import clock
+from ricebot import clock, settings
 from ricebot.ctf import ctftime
 from ricebot.store import ctf as store
-from ricebot.store import settings
 from ricebot.store.settings import Key
 
 log = logging.getLogger(__name__)
@@ -159,16 +158,8 @@ class CtfCog(commands.Cog):
         await self._add_announce(guild, event)
         await self._add_event(guild, event)
 
-    async def _channel(self, guild: discord.Guild, key: Key) -> discord.abc.GuildChannel | None:
-        channel_id = await settings.get_id(self.db, key)
-        channel = guild.get_channel(channel_id) if channel_id is not None else None
-        if channel is None:
-            log.warning("%s is not set", key)
-        return channel
-
     async def _announce_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
-        channel = await self._channel(guild, Key.CTF_ANNOUNCE_CHANNEL)
-        return channel if isinstance(channel, discord.TextChannel) else None
+        return await settings.channel(self.db, guild, Key.CTF_ANNOUNCE_CHANNEL, discord.TextChannel)
 
     async def _add_announce(self, guild: discord.Guild, event: store.Event) -> None:
         """Post the contest, with the reaction that opens its channel."""
@@ -278,8 +269,8 @@ class CtfCog(commands.Cog):
                 return channel
             log.info("channel %s is gone; it will be created again", event.channel_id)
             await store.set_channel(self.db, event.ctftime_id, None)
-        category = await self._channel(guild, Key.CTF_CATEGORY)
-        if not isinstance(category, discord.CategoryChannel):
+        category = await settings.channel(self.db, guild, Key.CTF_CATEGORY, discord.CategoryChannel)
+        if category is None:
             return None
         try:
             channel = await category.create_text_channel(
@@ -347,8 +338,10 @@ class CtfCog(commands.Cog):
         if not isinstance(channel, discord.TextChannel):
             await store.archive(self.db, event.ctftime_id, clock.now())
             return
-        category = await self._channel(guild, Key.CTF_ARCHIVE_CATEGORY)
-        if not isinstance(category, discord.CategoryChannel):
+        category = await settings.channel(
+            self.db, guild, Key.CTF_ARCHIVE_CATEGORY, discord.CategoryChannel
+        )
+        if category is None:
             return
         try:
             # The member overwrites stay, so the people who were in it keep
