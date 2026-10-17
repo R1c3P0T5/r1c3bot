@@ -6,7 +6,6 @@ from enum import StrEnum
 
 from ricebot.clock import TAIPEI
 
-START = time(20, 0)
 DURATION = timedelta(hours=2)
 # How late a reminder may still be sent, which is how long an outage can last
 # without losing one.
@@ -35,17 +34,13 @@ OFFSETS: Mapping[Reminder, timedelta] = {
 }
 
 
-def starts_at(day: date, at: time = START) -> datetime:
-    """The UTC instant a session beginning at that local time starts."""
-    return datetime.combine(day, at, tzinfo=TAIPEI).astimezone(UTC)
-
-
 def parse(day: str, at: str) -> datetime | None:
-    """The start the two strings name, or None if either is not a date or a time."""
+    """The UTC start the two strings name, or None if either is not a date or a time."""
     try:
-        return starts_at(date.fromisoformat(day), time.fromisoformat(at))
+        local = datetime.combine(date.fromisoformat(day), time.fromisoformat(at), tzinfo=TAIPEI)
     except ValueError:
         return None
+    return local.astimezone(UTC)
 
 
 def upcoming_days(today: date, span: int) -> list[date]:

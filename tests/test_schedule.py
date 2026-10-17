@@ -1,18 +1,9 @@
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime
 
 from ricebot.bookclub import schedule
 from ricebot.bookclub.schedule import Reminder
 
-FRIDAY = date(2026, 10, 16)
 EIGHT_PM = datetime(2026, 10, 16, 12, 0, tzinfo=UTC)  # 20:00 Taipei
-
-
-def test_a_session_starts_at_eight_pm_taipei_by_default() -> None:
-    assert schedule.starts_at(FRIDAY) == EIGHT_PM
-
-
-def test_the_local_time_can_be_given() -> None:
-    assert schedule.starts_at(FRIDAY, time(19, 30)) == datetime(2026, 10, 16, 11, 30, tzinfo=UTC)
 
 
 def test_a_typed_day_and_time_become_the_start() -> None:
