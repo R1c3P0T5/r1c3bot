@@ -68,7 +68,7 @@ async def test_an_archived_contest_is_no_longer_looked_after(store) -> None:
     await ctf.ensure(store, contest(3365))
     await ctf.archive(store, 3364, datetime(2026, 10, 26, 0, 0, tzinfo=UTC))
 
-    assert [found.ctftime_id for found in await ctf.open_events(store)] == [3365]
+    assert [found.ctftime_id for found in await ctf.open_contests(store)] == [3365]
 
 
 async def test_a_contest_is_due_to_be_put_away_once_it_is_over(store) -> None:
