@@ -3,6 +3,8 @@ from datetime import UTC, datetime, timedelta
 from ricebot.ctf import ctftime
 
 NOW = datetime(2026, 10, 17, 0, 0, tzinfo=UTC)
+# The window each test looks through, unless it is the window under test.
+WINDOW = timedelta(days=21)
 
 # One entry as CTFtime returned it, trimmed to the fields ricebot reads.
 RAW = {
@@ -87,40 +89,49 @@ def test_an_unrated_contest_is_left_out() -> None:
     # Weight 0 is CTFtime saying it knows nothing about the organisers.
     rated, unrated = listed(20, weight=0.01), listed(21, weight=0.0)
 
-    assert ctftime.wanted([rated, unrated], now=NOW) == [rated]
+    assert ctftime.wanted([rated, unrated], now=NOW, within=WINDOW, weight_floor=0.0) == [rated]
 
 
 def test_the_threshold_can_be_raised_and_is_exclusive() -> None:
     at_it, above_it = listed(20, weight=25.0), listed(21, weight=25.01)
 
-    assert ctftime.wanted([at_it, above_it], now=NOW, weight_floor=25.0) == [above_it]
+    assert ctftime.wanted([at_it, above_it], now=NOW, within=WINDOW, weight_floor=25.0) == [
+        above_it
+    ]
 
 
 def test_an_onsite_contest_is_not_for_us() -> None:
     # The guild calendar is finite, and nobody plays these from home.
-    assert ctftime.wanted([listed(20, onsite=True, location="Taipei, Taiwan")], now=NOW) == []
+    onsite = listed(20, onsite=True, location="Taipei, Taiwan")
+
+    assert ctftime.wanted([onsite], now=NOW, within=WINDOW, weight_floor=0.0) == []
 
 
 def test_a_contest_nobody_can_enter_is_left_out() -> None:
-    assert ctftime.wanted([listed(20, restrictions="Prequalified")], now=NOW) == []
+    finals = listed(20, restrictions="Prequalified")
+
+    assert ctftime.wanted([finals], now=NOW, within=WINDOW, weight_floor=0.0) == []
 
 
 def test_a_contest_already_under_way_is_not_announced() -> None:
     started = listed(16, start="2026-10-17T00:00:00+00:00")
 
-    assert ctftime.wanted([started], now=NOW) == []
+    assert ctftime.wanted([started], now=NOW, within=WINDOW, weight_floor=0.0) == []
 
 
 def test_the_far_end_of_the_window_is_included() -> None:
     edge = listed(7, start="2026-11-07T00:00:00+00:00")
     beyond = listed(8, start="2026-11-07T00:00:01+00:00")
 
-    assert ctftime.wanted([edge, beyond], now=NOW, within=timedelta(days=21)) == [edge]
+    assert ctftime.wanted([edge, beyond], now=NOW, within=WINDOW, weight_floor=0.0) == [edge]
 
 
 def test_the_soonest_contest_comes_first() -> None:
     assert [
-        found.id for found in ctftime.wanted([listed(30), listed(20), listed(25)], now=NOW)
+        found.id
+        for found in ctftime.wanted(
+            [listed(30), listed(20), listed(25)], now=NOW, within=WINDOW, weight_floor=0.0
+        )
     ] == [
         20,
         25,
