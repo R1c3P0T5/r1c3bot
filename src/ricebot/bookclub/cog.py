@@ -295,9 +295,9 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return EVENT_CREATED
 
     async def _add_announce(self, guild: discord.Guild, session: store.Session) -> str:
-        """Post the sign-up form, and say what happened.
+        """Post the announcement, and say what happened.
 
-        The row is re-read: a sync just before may have found the form gone.
+        The row is re-read: a sync just before may have found it gone.
         """
         session = await store.session(self.db, session.starts_at) or session
         if session.announce_message_id is not None:
@@ -325,10 +325,10 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         return ANNOUNCE_POSTED
 
     async def _sync_announce(self, guild: discord.Guild, session: store.Session) -> None:
-        """Rewrite the form if it has drifted, and forget it if it is gone.
+        """Rewrite the announcement if it has drifted, and forget it if it is gone.
 
-        Only a fetch notices a form deleted by hand, so the id alone never
-        counts as a form that exists. The row must already be current.
+        Only a fetch notices one deleted by hand, so the id alone never counts
+        as an announcement that exists. The row must already be current.
         """
         if session.announce_message_id is None:
             return
@@ -372,7 +372,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await channel.send(f"{text}{_announce_link(channel, session)}", allowed_mentions=PING_USERS)
 
     async def _sync(self, guild: discord.Guild, session: store.Session) -> None:
-        """Push the row onto both of its projections, the event and the form.
+        """Push the row onto both of its projections, the event and the announcement.
 
         Re-read first: the caller holds a snapshot from before its own write.
         """
@@ -704,7 +704,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         log.error("the bookclub loop stopped", exc_info=error)
 
     async def _reconcile(self, guild: discord.Guild, session: store.Session) -> None:
-        """Restore what the row projects: the event, and the sign-up form.
+        """Restore what the row projects: the event, and the announcement.
 
         Sync before add: the fetch is the only thing that notices a projection
         deleted by hand, and it forgets the id, so what it clears is replaced
