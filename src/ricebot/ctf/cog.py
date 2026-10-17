@@ -9,7 +9,7 @@ import httpx
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import clock, permissions, settings, sync
+from ricebot import clock, permissions, refusal, settings, sync
 from ricebot.ctf import ctftime
 from ricebot.store import ctf as store
 from ricebot.store import settings as settings_store
@@ -54,11 +54,6 @@ def _bounded(text: str, low: float, high: float) -> float | None:
     except ValueError:
         return None
     return value if low <= value <= high else None
-
-
-def _reason(error: discord.HTTPException) -> str:
-    """The first line of a Discord error; the rest is a JSON body."""
-    return str(error).splitlines()[0][:80]
 
 
 def _duration_text(span: timedelta) -> str:
@@ -543,7 +538,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             )
         except discord.HTTPException as error:
             log.warning("no channel for contest %s: %s", contest.ctftime_id, error)
-            await self._rsvp_failed(guild, member, f"Discord 回報 {_reason(error)}")
+            await self._rsvp_failed(guild, member, refusal.text(error))
             return None
 
         await store.set_channel(self.db, contest.ctftime_id, channel.id)
@@ -569,7 +564,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             await channel.set_permissions(member, view_channel=True)
         except discord.HTTPException as error:
             log.warning("%s not let into %s: %s", member.id, channel.id, error)
-            await self._rsvp_failed(member.guild, member, f"Discord 回報 {_reason(error)}")
+            await self._rsvp_failed(member.guild, member, refusal.text(error))
             return
         if not known:
             await channel.send(
@@ -633,7 +628,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             )
         except discord.HTTPException as error:
             log.warning("channel %s not archived: %s", channel.id, error)
-            return f"Discord 回報 {_reason(error)}"
+            return refusal.text(error)
 
         await store.archive(self.db, contest.ctftime_id, clock.now())
         log.info("channel %s archived for contest %s", channel.id, contest.ctftime_id)
