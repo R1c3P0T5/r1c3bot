@@ -645,6 +645,14 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if category is None:
             return NO_ARCHIVE_CATEGORY
 
+        if contest.archive_warned_at is None:
+            # Said while the channel still takes messages, and only on the
+            # attempt that has not already complained about failing.
+            try:
+                await channel.send("我要把這個頻道收起來囉", allowed_mentions=SILENT)
+            except discord.HTTPException as error:
+                log.warning("channel %s not told: %s", channel.id, error)
+
         try:
             # Member overwrites stay, so whoever was in it still reads it.
             await channel.edit(category=category)
