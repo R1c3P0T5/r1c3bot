@@ -54,7 +54,7 @@ async def history(db: aiosqlite.Connection, before: datetime, limit: int = 10) -
 async def upcoming(
     db: aiosqlite.Connection, not_before: datetime, limit: int = 25
 ) -> list[Session]:
-    """Sessions not yet finished, earliest first. The limit is Discord's."""
+    """Uncancelled sessions not yet finished, earliest first; 25 fills an autocomplete."""
     async with db.execute(
         "SELECT * FROM sessions WHERE starts_at_utc >= ? AND cancelled_at IS NULL"
         " ORDER BY starts_at_utc LIMIT ?",
@@ -162,7 +162,7 @@ async def skipped(db: aiosqlite.Connection, session_id: int) -> set[int]:
 
 
 async def last_hosted(db: aiosqlite.Connection) -> dict[int, datetime]:
-    """When each member last took a turn, by rotation rather than by who hosted."""
+    """When each member last held the rotation turn."""
     async with db.execute(
         "SELECT rotation_user_id AS user_id, MAX(starts_at_utc) AS last FROM sessions"
         " WHERE rotation_user_id IS NOT NULL AND cancelled_at IS NULL"

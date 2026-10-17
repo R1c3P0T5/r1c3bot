@@ -16,7 +16,7 @@ from ricebot.store.settings import Key
 log = logging.getLogger(__name__)
 
 SILENT = discord.AllowedMentions.none()
-# The sign-up list: pressing it is what opens the channel.
+# Reacting with this emoji opens the discussion channel.
 RSVP = "🚩"
 # CTFtime's restriction values. Open is not printed, and Casual marks a
 # relaxed contest rather than a closed one.
@@ -38,7 +38,7 @@ def _duration_text(span: timedelta) -> str:
 
 def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
     """What the contest is, for the message and for the guild event alike."""
-    # wanted() drops onsite contests, so today every row takes the online branch.
+    # ctftime.wanted() filters onsite contests out.
     where = f"實體（{contest.location}）" if contest.onsite else "線上"
     casual = "休閒" if contest.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, contest.format, casual) if part)
@@ -180,8 +180,7 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("contest %s not announced: %s", contest.ctftime_id, error)
             return
-        # Recorded before the reaction, so failing to add it cannot cost the
-        # message and leave the next pass posting a second one.
+        # Recorded before reacting, so a failed reaction cannot cause a second post.
         await store.set_announce(self.db, contest.ctftime_id, message.id)
         log.info("contest %s announced as %s", contest.ctftime_id, message.id)
         try:
@@ -248,7 +247,7 @@ class CtfCog(commands.Cog):
             log.warning("event %s not fetched: %s", contest.guild_event_id, error)
             return
         if scheduled.status is not discord.EventStatus.scheduled:
-            # Under way or over: Discord refuses edits, and it happened.
+            # Discord refuses edits to an event that has started.
             return
         description = _event_description(contest)
         if (scheduled.name, scheduled.description or "", scheduled.start_time) == (
@@ -308,8 +307,7 @@ class CtfCog(commands.Cog):
         channel = await self._team_channel(member.guild, contest)
         if channel is None:
             return
-        # Already in: someone who presses twice, or whose press arrived while
-        # the channel was being made, is not announced again.
+        # Already in: a second press must not announce them again.
         known = channel.overwrites_for(member).view_channel is True
         try:
             await channel.set_permissions(member, view_channel=True)
@@ -334,8 +332,8 @@ class CtfCog(commands.Cog):
         if not isinstance(channel, discord.TextChannel) or member is None:
             return
         try:
-            # Removing the overwrite rather than denying it: the member leaves
-            # no trace, and rejoining is the same path as joining.
+            # Removing the overwrite leaves no trace, and rejoining repeats the
+            # join path.
             await channel.set_permissions(member, overwrite=None)
         except discord.HTTPException as error:
             log.warning("%s not removed from %s: %s", member.id, channel.id, error)
