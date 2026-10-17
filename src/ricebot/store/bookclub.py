@@ -30,7 +30,7 @@ def _session(row: aiosqlite.Row) -> Session:
         topic=row["topic"],
         event_id=row["event_id"],
         announce_message_id=row["announce_message_id"],
-        cancelled_at=db.moment(row["cancelled_at"]),
+        cancelled_at=db.parse_moment(row["cancelled_at"]),
     )
 
 

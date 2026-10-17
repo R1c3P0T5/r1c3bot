@@ -52,7 +52,7 @@ def _contest(row: aiosqlite.Row) -> Contest:
         announce_message_id=row["announce_message_id"],
         channel_id=row["channel_id"],
         guild_event_id=row["event_id"],
-        archived_at=db.moment(row["archived_at"]),
+        archived_at=db.parse_moment(row["archived_at"]),
     )
 
 

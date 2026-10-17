@@ -17,8 +17,8 @@ MIGRATIONS = resources.files("ricebot.store") / "migrations"
 _NAME = re.compile(r"\A\d{3}_[a-z0-9_]+\.sql\Z")
 
 
-def moment(value: str | None) -> datetime | None:
-    """The instant a nullable timestamp column holds."""
+def parse_moment(value: str | None) -> datetime | None:
+    """The instant a nullable timestamp column holds, passing NULL through."""
     return None if value is None else datetime.fromisoformat(value)
 
 
@@ -26,7 +26,7 @@ async def connect(path: Path) -> aiosqlite.Connection:
     """Open the database, apply pending migrations, and return the connection."""
     db = await aiosqlite.connect(path)
     db.row_factory = aiosqlite.Row
-    # Both are per connection, and foreign_keys is off by default.
+    # foreign_keys is off by default and resets with every connection.
     await db.execute("PRAGMA journal_mode = WAL")
     await db.execute("PRAGMA foreign_keys = ON")
     applied = await migrate(db)
