@@ -13,16 +13,22 @@ r1c3p0t5 社群經營用的 Discord bot。
 - `/bookclub next` — 下一場的時間、主持人與主題
 - `/bookclub history [count]` — 過去的場次與主題
 - `/bookclub role <role>` — 設定讀書會身分組：輪替名單與提醒的對象
+- `/ctf upcoming` — 接下來追蹤中的比賽
+- `/ctf announce <ctftime_id>` — 手動公告一場，不經過篩選條件
+- `/ctf archive [contest]` — 手動封存一場的討論頻道，在它的頻道裡執行可以不給參數
+- `/ctf config` — 調整權重門檻、往後看幾天、結束幾天後封存
 
 `[when]` 不給就是下一場。
-`/config`、`new`、`cancel`、`role` 需要 Manage Server，`host`、`skip`、`topic` 限本場主持人或管理員，其餘不限。
+`/config`、`/ctf announce`、`/ctf archive`、`/ctf config` 與 `new`、`cancel`、`role` 需要 Manage Server，`host`、`skip`、`topic` 限本場主持人或管理員，其餘不限。
 指令的回覆只有自己看得見，公開訊息一律發在對應頻道。
 
-CTF 揪團沒有指令，由排程驅動：
+CTF 揪團的自動部分：
 
-- 每 6 小時從 CTFtime 抓未來 21 天的比賽，留下有權重、非 onsite、不是 `Prequalified` 的場次，發公告並建立活動。
+- 每 6 小時從 CTFtime 抓未來 21 天（預設）的比賽，留下有權重、非 onsite、不是 `Prequalified` 的場次，發公告並建立活動。
+- 門檻與天數都能用 `/ctf config` 調；`/ctf announce` 不受篩選限制，onsite 或未評分的比賽也收得進來。
 - 按 🚩 就進該場的私密討論頻道；頻道等第一個 🚩 才開，取消 🚩 只移除權限，頻道留著。
-- 比賽結束兩天後，頻道搬到封存分類並設為唯讀，原本的成員仍讀得到。
+- 比賽結束兩天（預設）後，頻道搬到封存分類並設為唯讀，原本的成員仍讀得到。
+- 開頻道或封存失敗時（分類沒設定、分類滿了、缺權限），會在 CTF 公告頻道說出原因。
 
 讀書會在指令以外的部分：
 
