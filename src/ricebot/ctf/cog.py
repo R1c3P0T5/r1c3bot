@@ -10,7 +10,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from ricebot import clock, permissions, refusal, settings, sync
-from ricebot.ctf import ctftime
+from ricebot.ctf import ctftime, messages
 from ricebot.store import ctf as store
 from ricebot.store import settings as settings_store
 from ricebot.store.settings import Key
@@ -20,29 +20,8 @@ log = logging.getLogger(__name__)
 SILENT = discord.AllowedMentions.none()
 # A member waiting to be let in is worth a notification.
 PING_USERS = discord.AllowedMentions(everyone=False, roles=False, users=True)
-# Reacting with this emoji opens the discussion channel.
-RSVP = "🚩"
-# CTFtime's restriction values. Open is not printed, and Casual still lets
-# anyone enter.
-OPEN = "Open"
-CASUAL = "Casual"
-RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
-NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` 設定"
-NOTHING_OPEN = "現在沒有在追蹤的比賽。"
-NOT_TRACKED = "找不到這場。在它的討論頻道裡執行，或用選單指定一場。"
-ARCHIVED_ALREADY = "這場已經封存過了。"
-BAD_NUMBER = "三個欄位都要是數字，而且在標示的範圍內。"
-ANNOUNCE_POSTED = "已發布"
-ANNOUNCE_MISSING = "未發布，原因在 log"
-EVENT_CREATED = "已建立"
-EVENT_MISSING = "未建立（已經開始，或 Discord 拒絕）"
-# A reply takes 2000 characters, and a line with a link approaches a hundred.
-LISTED = 15
 # Discord accepts at most this many autocomplete choices.
 CHOICES = 25
-NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config` 設定"
-# A guild event's description takes 1000 characters, markup and all.
-EVENT_LIMIT = 1000
 # Long enough for the write-ups to be written in the channel before it goes.
 ARCHIVE_AFTER = timedelta(days=2)
 
@@ -54,78 +33,6 @@ def _bounded(text: str, low: float, high: float) -> float | None:
     except ValueError:
         return None
     return value if low <= value <= high else None
-
-
-def _duration_text(span: timedelta) -> str:
-    days, hours = divmod(round(span.total_seconds() / 3600), 24)
-    if days and hours:
-        return f"{days} 天 {hours} 小時"
-    return f"{days} 天" if days else f"{hours} 小時"
-
-
-def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
-    """What the contest is, for the message and for the guild event alike."""
-    where = f"實體（{contest.location}）" if contest.onsite else "線上"
-    casual = "休閒" if contest.restrictions == CASUAL else ""
-    kind = " ".join(part for part in (where, contest.format, casual) if part)
-    # CTFtime counts the teams registered, so a contest announced early has 0.
-    teams = f"{contest.participants} 隊" if contest.participants else ""
-    span = _duration_text(contest.finishes_at - contest.starts_at)
-    lines = [" ".join(p for p in (kind, f"(weight {contest.weight:.2f})", teams, span) if p)]
-    if contest.restrictions not in {OPEN, CASUAL, ""}:
-        # Its own line, because being unable to enter outranks everything else.
-        limit = RESTRICTION_LABELS.get(contest.restrictions, contest.restrictions)
-        lines.append(f"{emphasis}{limit}（{contest.restrictions}）{emphasis}")
-    if contest.organizers:
-        lines.append(f"主辦：{contest.organizers}")
-    return lines
-
-
-def _summary(contest: store.Contest) -> str:
-    """The contest, as both the announcement and its own channel introduce it."""
-    lines = [f"## {contest.title}", *_facts(contest, "**")]
-    # Angle brackets so two links do not become two embeds.
-    lines.append(f"[官網](<{contest.url}>) ‧ [CTFtime](<{contest.page}>)")
-    # The times go last: the client renders each as some 60 characters, which
-    # above the facts would crowd them out. The short style drops the weekday.
-    lines += [
-        "",
-        (
-            f"{clock.stamp(contest.starts_at, 'f')} ～ {clock.stamp(contest.finishes_at, 'f')}"
-            f"（{clock.stamp(contest.starts_at, 'R')}開始）"
-        ),
-    ]
-    return "\n".join(lines)
-
-
-def _listed(contest: store.Contest, channel: discord.TextChannel | None) -> str:
-    """One line of the list: when it starts, what it is, where it is discussed."""
-    title = contest.title
-    if channel is not None and contest.announce_message_id is not None:
-        link = channel.get_partial_message(contest.announce_message_id).jump_url
-        title = f"[{contest.title}](<{link}>)"
-    where = f" <#{contest.channel_id}>" if contest.channel_id is not None else ""
-    return f"`{clock.taipei(contest.starts_at):%m/%d %H:%M}` {title}{where}"
-
-
-def _announce_text(contest: store.Contest) -> str:
-    return f"{_summary(contest)}\n\n想打的按個 {RSVP}，我開一個討論頻道給你們。"
-
-
-def _channel_text(contest: store.Contest) -> str:
-    """The channel's first message: a hello, the summary, and CTFtime's blurb."""
-    hello = f"{contest.title} 用的頻道開了！後續的討論和 write-up 都可以丟這裡"
-    parts = [hello, _summary(contest)]
-    if contest.description:
-        parts.append(contest.description)
-    return "\n\n".join(parts)
-
-
-def _event_description(contest: store.Contest) -> str:
-    """The same facts as the announcement, then as much blurb as still fits."""
-    head = "\n".join([*_facts(contest), contest.url, contest.page])
-    blurb = ctftime.shorten(contest.description, EVENT_LIMIT - len(head) - 2)
-    return f"{head}\n\n{blurb}" if blurb else head
 
 
 class TuningModal(discord.ui.Modal, title="CTF 篩選與封存"):
@@ -159,7 +66,7 @@ class TuningModal(discord.ui.Modal, title="CTF 篩選與封存"):
         keep = _bounded(self.keep.component.value, 0, 60)
         if floor is None or lookahead is None or keep is None:
             # All or nothing: half a setting written is worse than none.
-            await interaction.response.send_message(BAD_NUMBER, ephemeral=True)
+            await interaction.response.send_message(messages.BAD_NUMBER, ephemeral=True)
             return
 
         await settings_store.put(self.cog.db, Key.CTF_WEIGHT_FLOOR, f"{floor:g}")
@@ -219,15 +126,16 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
     async def upcoming(self, interaction: discord.Interaction) -> None:
         contests = await store.open_contests(self.db)
         if not contests:
-            await interaction.response.send_message(NOTHING_OPEN, ephemeral=True)
+            await interaction.response.send_message(messages.NOTHING_OPEN, ephemeral=True)
             return
 
         # Deferred: the announcement links need the channel, and that is a fetch.
         await interaction.response.defer(ephemeral=True)
         channel = await self._announce_channel(interaction.guild)
-        lines = [_listed(contest, channel) for contest in contests[:LISTED]]
-        if len(contests) > LISTED:
-            lines.append(f"-# 另外還有 {len(contests) - LISTED} 場。")
+        shown = contests[: messages.LISTED]
+        lines = [messages.listed(found, self._jump_url(channel, found)) for found in shown]
+        if len(contests) > len(shown):
+            lines.append(f"-# 另外還有 {len(contests) - len(shown)} 場。")
         await interaction.followup.send("\n".join(lines), ephemeral=True, allowed_mentions=SILENT)
 
     @app_commands.command(description="手動公告一場比賽，不經過篩選條件")
@@ -254,11 +162,13 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         saved = await store.contest(self.db, ctftime_id) or contest
         over = "\n-# 這場已經結束，下一輪會直接封存。" if saved.finishes_at <= clock.now() else ""
         lead = "這場已經在追蹤了，補上缺的部分" if known else "收進來了"
+        announced = saved.announce_message_id is not None
+        on_calendar = saved.guild_event_id is not None
         await interaction.followup.send(
             f"{lead} **{saved.title}**\n"
             f"{clock.stamp(saved.starts_at, 'f')} ～ {clock.stamp(saved.finishes_at, 'f')}\n"
-            f"公告：{ANNOUNCE_POSTED if saved.announce_message_id else ANNOUNCE_MISSING}\n"
-            f"活動：{EVENT_CREATED if saved.guild_event_id else EVENT_MISSING}{over}",
+            f"公告：{messages.ANNOUNCE_POSTED if announced else messages.ANNOUNCE_MISSING}\n"
+            f"活動：{messages.EVENT_CREATED if on_calendar else messages.EVENT_MISSING}{over}",
             ephemeral=True,
             allowed_mentions=SILENT,
         )
@@ -296,10 +206,10 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
     async def archive(self, interaction: discord.Interaction, contest: str | None = None) -> None:
         found = await self._chosen(contest, interaction.channel_id)
         if found is None:
-            await interaction.response.send_message(NOT_TRACKED, ephemeral=True)
+            await interaction.response.send_message(messages.NOT_TRACKED, ephemeral=True)
             return
         if found.archived_at is not None:
-            await interaction.response.send_message(ARCHIVED_ALREADY, ephemeral=True)
+            await interaction.response.send_message(messages.ARCHIVED_ALREADY, ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True)
@@ -389,6 +299,12 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
     async def _announce_channel(self, guild: discord.Guild) -> discord.TextChannel | None:
         return await settings.channel(self.db, guild, Key.CTF_ANNOUNCE_CHANNEL, discord.TextChannel)
 
+    def _jump_url(self, channel: discord.TextChannel | None, contest: store.Contest) -> str | None:
+        """A link to the contest's announcement, once there is one to link to."""
+        if channel is None or contest.announce_message_id is None:
+            return None
+        return channel.get_partial_message(contest.announce_message_id).jump_url
+
     async def _add_announce(self, guild: discord.Guild, contest: store.Contest) -> None:
         """Post the contest, with the reaction that opens its channel."""
         contest = await store.contest(self.db, contest.ctftime_id) or contest
@@ -398,7 +314,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if channel is None:
             return
         try:
-            message = await channel.send(_announce_text(contest), allowed_mentions=SILENT)
+            message = await channel.send(messages.announce(contest), allowed_mentions=SILENT)
         except discord.HTTPException as error:
             log.warning("contest %s not announced: %s", contest.ctftime_id, error)
             return
@@ -407,9 +323,9 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         await store.set_announce(self.db, contest.ctftime_id, message.id)
         log.info("contest %s announced as %s", contest.ctftime_id, message.id)
         try:
-            await message.add_reaction(RSVP)
+            await message.add_reaction(messages.RSVP)
         except discord.HTTPException as error:
-            log.warning("no %s on announcement %s: %s", RSVP, message.id, error)
+            log.warning("no %s on announcement %s: %s", messages.RSVP, message.id, error)
 
     async def _sync_announce(self, guild: discord.Guild, contest: store.Contest) -> None:
         """Rewrite the announcement if CTFtime moved the contest, or forget it if it is gone."""
@@ -422,9 +338,9 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if not await sync.message(
             channel,
             contest.announce_message_id,
-            content=_announce_text(contest),
+            content=messages.announce(contest),
             mentions=SILENT,
-            rsvp=RSVP if contest.archived_at is None else None,
+            rsvp=messages.RSVP if contest.archived_at is None else None,
         ):
             await store.set_announce(self.db, contest.ctftime_id, None)
 
@@ -437,7 +353,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         try:
             created = await guild.create_scheduled_event(
                 name=contest.title[:100],
-                description=_event_description(contest),
+                description=messages.event_description(contest),
                 start_time=contest.starts_at,
                 end_time=contest.finishes_at,
                 entity_type=discord.EntityType.external,
@@ -459,19 +375,19 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             guild,
             contest.guild_event_id,
             name=contest.title[:100],
-            description=_event_description(contest),
+            description=messages.event_description(contest),
             starts_at=contest.starts_at,
             ends_at=contest.finishes_at,
         ):
             await store.set_guild_event(self.db, contest.ctftime_id, None)
 
     async def _rsvp_failed(self, guild: discord.Guild, member: discord.Member, reason: str) -> None:
-        """Say that a 🚩 did not get the member in; a reaction has no reply of its own."""
+        """Say that an RSVP did not get the member in; a reaction has no reply of its own."""
         channel = await self._announce_channel(guild)
         if channel is None:
             return
         await channel.send(
-            f"{member.mention} 我看到你的 🚩 了，可是頻道開不起來 🥲\n-# {reason}",
+            f"{member.mention} 我看到你的 {messages.RSVP} 了，可是頻道開不起來 🥲\n-# {reason}",
             allowed_mentions=PING_USERS,
         )
 
@@ -501,11 +417,9 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
         # Claimed before sending, so a failure retries instead of repeating.
         await store.set_finish_notice(self.db, contest.ctftime_id, clock.now())
-        closes = clock.taipei(contest.finishes_at + keep)
         try:
             await channel.send(
-                f"比賽結束！辛苦了🙌\n這個頻道會在 {closes:%m/%d} 收起來，但內容都還會在",
-                allowed_mentions=SILENT,
+                messages.wrap_up(contest.finishes_at + keep), allowed_mentions=SILENT
             )
         except discord.HTTPException as error:
             log.warning("contest %s not wrapped up: %s", contest.ctftime_id, error)
@@ -524,7 +438,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
         category = await settings.channel(self.db, guild, Key.CTF_CATEGORY, discord.CategoryChannel)
         if category is None:
-            await self._rsvp_failed(guild, member, NO_CATEGORY)
+            await self._rsvp_failed(guild, member, messages.NO_CATEGORY)
             return None
 
         try:
@@ -543,13 +457,13 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
         await store.set_channel(self.db, contest.ctftime_id, channel.id)
         log.info("channel %s created for contest %s", channel.id, contest.ctftime_id)
-        await channel.send(_channel_text(contest), allowed_mentions=SILENT)
+        await channel.send(messages.channel_opened(contest), allowed_mentions=SILENT)
         return channel
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
         member = payload.member
-        if member is None or member.bot or str(payload.emoji) != RSVP:
+        if member is None or member.bot or str(payload.emoji) != messages.RSVP:
             return
         contest = await store.by_message(self.db, payload.message_id)
         if contest is None or contest.archived_at is not None:
@@ -574,7 +488,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
-        if str(payload.emoji) != RSVP:
+        if str(payload.emoji) != messages.RSVP:
             return
         contest = await store.by_message(self.db, payload.message_id)
         if contest is None or contest.channel_id is None or contest.archived_at is not None:
@@ -610,7 +524,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             self.db, guild, Key.CTF_ARCHIVE_CATEGORY, discord.CategoryChannel
         )
         if category is None:
-            return NO_ARCHIVE_CATEGORY
+            return messages.NO_ARCHIVE_CATEGORY
 
         if contest.archive_warned_at is None:
             # Said while the channel still takes messages, and only on the
