@@ -258,8 +258,9 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
 
         saved = await store.contest(self.db, ctftime_id) or contest
         over = "\n-# 這場已經結束，下一輪會直接封存。" if saved.finishes_at <= clock.now() else ""
+        lead = "這場已經在追蹤了，補上缺的部分" if known else "收進來了"
         await interaction.followup.send(
-            f"{'這場已經在追蹤了，補上缺的部分' if known else '收進來了'} **{saved.title}**\n"
+            f"{lead} **{saved.title}**\n"
             f"{clock.stamp(saved.starts_at, 'f')} ～ {clock.stamp(saved.finishes_at, 'f')}\n"
             f"公告：{ANNOUNCE_POSTED if saved.announce_message_id else ANNOUNCE_MISSING}\n"
             f"活動：{EVENT_CREATED if saved.guild_event_id else EVENT_MISSING}{over}",
