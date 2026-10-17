@@ -6,9 +6,10 @@ from datetime import timedelta
 import aiosqlite
 import discord
 import httpx
+from discord import app_commands
 from discord.ext import commands, tasks
 
-from ricebot import clock, settings
+from ricebot import clock, permissions, settings
 from ricebot.ctf import ctftime
 from ricebot.store import ctf as store
 from ricebot.store.settings import Key
@@ -26,6 +27,9 @@ OPEN = "Open"
 CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
 NO_CATEGORY = "還沒設定 CTF 討論頻道分類，請管理員用 `/config` 設定"
+NOTHING_OPEN = "現在沒有在追蹤的比賽。"
+# A reply takes 2000 characters, and a line with a link approaches a hundred.
+LISTED = 15
 NO_ARCHIVE_CATEGORY = "還沒設定 CTF 封存分類，請管理員用 `/config` 設定"
 # A guild event's description takes 1000 characters, markup and all.
 EVENT_LIMIT = 1000
@@ -80,6 +84,16 @@ def _summary(contest: store.Contest) -> str:
     return "\n".join(lines)
 
 
+def _listed(contest: store.Contest, channel: discord.TextChannel | None) -> str:
+    """One line of the list: when it starts, what it is, where it is discussed."""
+    title = contest.title
+    if channel is not None and contest.announce_message_id is not None:
+        link = channel.get_partial_message(contest.announce_message_id).jump_url
+        title = f"[{contest.title}](<{link}>)"
+    where = f"　<#{contest.channel_id}>" if contest.channel_id is not None else ""
+    return f"`{clock.taipei(contest.starts_at):%m/%d %H:%M}`　{title}{where}"
+
+
 def _announce_text(contest: store.Contest) -> str:
     return f"{_summary(contest)}\n\n想打的按個 {RSVP}，我開一個討論頻道給你們。"
 
@@ -100,7 +114,7 @@ def _event_description(contest: store.Contest) -> str:
     return f"{head}\n\n{blurb}" if blurb else head
 
 
-class CtfCog(commands.Cog):
+class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
     def __init__(self, bot: commands.Bot, db: aiosqlite.Connection, guild_id: int) -> None:
         self.bot = bot
         self.db = db
@@ -113,6 +127,27 @@ class CtfCog(commands.Cog):
     async def cog_unload(self) -> None:
         self._tick.cancel()
         await self.http.aclose()
+
+    async def cog_app_command_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        await permissions.on_error(interaction, error)
+
+    @app_commands.command(description="接下來追蹤中的比賽")
+    @app_commands.guild_only()
+    async def upcoming(self, interaction: discord.Interaction) -> None:
+        contests = await store.open_contests(self.db)
+        if not contests:
+            await interaction.response.send_message(NOTHING_OPEN, ephemeral=True)
+            return
+
+        # Deferred: the announcement links need the channel, and that is a fetch.
+        await interaction.response.defer(ephemeral=True)
+        channel = await self._announce_channel(interaction.guild)
+        lines = [_listed(contest, channel) for contest in contests[:LISTED]]
+        if len(contests) > LISTED:
+            lines.append(f"-# 另外還有 {len(contests) - LISTED} 場。")
+        await interaction.followup.send("\n".join(lines), ephemeral=True, allowed_mentions=SILENT)
 
     @tasks.loop(hours=6)
     async def _tick(self) -> None:
