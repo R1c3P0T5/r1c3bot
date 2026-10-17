@@ -8,10 +8,10 @@ from typing import Any
 
 import httpx
 
-API = "https://ctftime.org/api/v1/events/"
+_API = "https://ctftime.org/api/v1/events/"
 # CTFtime asks callers to identify themselves, and the default agent is shared
 # by every httpx caller in the world.
-AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
+_AGENT = "ricebot (+https://github.com/R1c3P0T5/r1c3bot)"
 # How far ahead to look, which is also how far back a restart reaches: the
 # whole window is asked for every time.
 WINDOW = timedelta(days=21)
@@ -20,17 +20,14 @@ WINDOW = timedelta(days=21)
 # that is twenty of the next thirty-six.
 MIN_WEIGHT = 0.0
 # Finals and invitationals: nobody joins these by deciding to.
-CLOSED = "Prequalified"
+_CLOSED = "Prequalified"
 # As much of CTFtime's description as a Discord message takes comfortably.
-BLURB = 1200
+_BLURB_LIMIT = 1200
 # One CTFtime page. The window has never held anywhere near this many.
-LIMIT = 100
+_PAGE_LIMIT = 100
 
-
-# Long enough for the write-ups to be written in the channel before it goes.
-ARCHIVE_AFTER = timedelta(days=2)
 # Discord takes 100 characters; the rest leaves room for a suffix.
-NAME_LIMIT = 90
+_NAME_LIMIT = 90
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +71,7 @@ def contest(raw: Mapping[str, Any]) -> Contest:
         # Display only, so the names are joined here rather than in a table.
         organizers="、".join(o["name"] for o in raw.get("organizers") or ()),
         participants=raw.get("participants") or 0,
-        description=shorten(raw.get("description") or "", BLURB),
+        description=shorten(raw.get("description") or "", _BLURB_LIMIT),
     )
 
 
@@ -101,7 +98,7 @@ def slug(title: str, fallback: str) -> str:
     punctuation once the separators collapse.
     """
     runs = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", "-", title.lower())
-    return runs.strip("-")[:NAME_LIMIT].strip("-") or fallback
+    return runs.strip("-")[:_NAME_LIMIT].strip("-") or fallback
 
 
 def wanted(
@@ -127,7 +124,7 @@ def wanted(
             for found in contests
             if not found.onsite
             and found.weight > min_weight
-            and found.restrictions != CLOSED
+            and found.restrictions != _CLOSED
             and now < found.starts_at <= now + within
         ),
         key=lambda found: (found.starts_at, found.id),
@@ -139,13 +136,13 @@ async def upcoming(
 ) -> list[Contest]:
     """Everything CTFtime lists for the window, unfiltered."""
     response = await client.get(
-        API,
+        _API,
         params={
-            "limit": LIMIT,
+            "limit": _PAGE_LIMIT,
             "start": int(now.timestamp()),
             "finish": int((now + within).timestamp()),
         },
-        headers={"User-Agent": AGENT},
+        headers={"User-Agent": _AGENT},
     )
     response.raise_for_status()
     return [contest(raw) for raw in response.json()]

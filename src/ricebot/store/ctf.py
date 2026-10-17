@@ -11,6 +11,8 @@ from ricebot.store import db
 
 @dataclass(frozen=True, slots=True)
 class Event:
+    """A contest ricebot has seen, with the ids of what it built for it."""
+
     ctftime_id: int
     title: str
     starts_at: datetime
@@ -149,7 +151,7 @@ async def set_channel(db: aiosqlite.Connection, ctftime_id: int, channel_id: int
     await db.commit()
 
 
-async def set_event(db: aiosqlite.Connection, ctftime_id: int, event_id: int | None) -> None:
+async def set_guild_event(db: aiosqlite.Connection, ctftime_id: int, event_id: int | None) -> None:
     await db.execute(
         "UPDATE ctf_events SET event_id = ? WHERE ctftime_id = ?", (event_id, ctftime_id)
     )

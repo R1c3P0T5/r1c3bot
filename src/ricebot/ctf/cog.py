@@ -23,9 +23,11 @@ RSVP = "🚩"
 # enter, and the rest decide whether a reader can enter at all.
 OPEN = "Open"
 CASUAL = "Casual"
-LIMITED = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
+RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
 # A guild event's description takes 1000 characters, markup and all.
 EVENT_LIMIT = 1000
+# Long enough for the write-ups to be written in the channel before it goes.
+ARCHIVE_AFTER = timedelta(days=2)
 
 
 def _length(span: timedelta) -> str:
@@ -43,7 +45,7 @@ def _facts(event: store.Event, emphasis: str = "") -> list[str]:
     lines = [f"{kind} (weight {event.weight:.2f})　{_length(event.finishes_at - event.starts_at)}"]
     if event.restrictions not in {OPEN, CASUAL, ""}:
         # Its own line, because being unable to enter outranks everything else.
-        limit = LIMITED.get(event.restrictions, event.restrictions)
+        limit = RESTRICTION_LABELS.get(event.restrictions, event.restrictions)
         lines.append(f"{emphasis}{limit}（{event.restrictions}）{emphasis}")
     if event.organizers:
         lines.append(f"主辦：{event.organizers}")
@@ -131,7 +133,7 @@ class CtfCog(commands.Cog):
                 await self._reconcile(guild, event)
             except Exception:
                 log.exception("contest %s not handled", event.ctftime_id)
-        for event in await store.finished(self.db, now - ctftime.ARCHIVE_AFTER):
+        for event in await store.finished(self.db, now - ARCHIVE_AFTER):
             try:
                 await self._archive(guild, event)
             except Exception:
@@ -223,7 +225,7 @@ class CtfCog(commands.Cog):
         except discord.HTTPException as error:
             log.warning("no event for contest %s: %s", event.ctftime_id, error)
             return
-        await store.set_event(self.db, event.ctftime_id, created.id)
+        await store.set_guild_event(self.db, event.ctftime_id, created.id)
         log.info("event %s created for contest %s", created.id, event.ctftime_id)
 
     async def _sync_event(self, guild: discord.Guild, event: store.Event) -> None:
@@ -234,7 +236,7 @@ class CtfCog(commands.Cog):
             scheduled = await guild.fetch_scheduled_event(event.event_id)
         except discord.NotFound:
             log.info("event %s is gone; it will be created again", event.event_id)
-            await store.set_event(self.db, event.ctftime_id, None)
+            await store.set_guild_event(self.db, event.ctftime_id, None)
             return
         except discord.HTTPException as error:
             log.warning("event %s not fetched: %s", event.event_id, error)
