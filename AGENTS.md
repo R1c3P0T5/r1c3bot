@@ -1,12 +1,15 @@
 # Repository purpose
 
 ricebot is a Discord bot supporting the r1c3p0t5 community.
-It serves a single guild and covers two independent domains: a biweekly book club (events, rotating hosts, attendees) and CTF team-ups driven by CTFtime (contest announcements, opt-in, per-contest discussion channels).
+It serves a single guild and covers two independent domains: a biweekly book club with rotating hosts, and CTF team-ups driven by CTFtime.
 Python 3.13 managed with `uv`, deployed as a systemd user service with a local SQLite database.
 
 ## Principles
 
 - Prefer the smallest direct change that solves the current task.
+- Prefer the fewest moving parts that do the job.
+  A helper, a parameter, a constant or a module earns its place by what it saves; when it saves nothing, inline it and say so.
+- Architecture serves maintenance and naming serves reading; both are judged by the next person to open the file.
 - Report the exact commands run and their observed results.
   Never fabricate test, lint, or runtime results.
 - Treat the two domains as independent.
@@ -15,14 +18,11 @@ Python 3.13 managed with `uv`, deployed as a systemd user service with a local S
 
 ## Subagents
 
-Delegate to subagents to save tokens, keep the main session small, and run independent tasks in parallel.
-The main session owns design decisions and integration; subagents return conclusions, not file contents.
+Delegate to keep the main session small; the main session still owns design decisions and integration, and subagents return conclusions, not file contents.
 
-- Haiku: searches, lookups, version checks, and edits that involve no design decisions.
-- Sonnet: scoped implementation, tests, debugging, and review.
-  Use Sonnet when unsure.
-- Launch independent tasks in parallel.
-  Give each a self-contained prompt stating the files, constraints, and expected output.
+- Haiku: searches, lookups, version checks, and edits with no design decision in them.
+- Sonnet: scoped implementation, tests, debugging, and review; use Sonnet when unsure.
+- Launch independent tasks in parallel, each with a self-contained prompt naming the files, the constraints, the expected output, and the conventions it judges against.
 
 ## Layout
 
@@ -34,19 +34,15 @@ The main session owns design decisions and integration; subagents return conclus
 - `src/ricebot/bookclub/` and `src/ricebot/ctf/`: one package per domain, each holding its pure logic plus a single `cog.py`.
   The two must not import each other.
 - `tests/`: pytest suites, named `test_<module>.py`.
-- `scripts/`: repository tooling.
 - `deploy/`: the systemd user unit, templated with `%h` so it needs no editing.
-- `.github/workflows/`: CI.
-- `docs/`: design notes.
+- `scripts/` holds repository tooling, `.github/workflows/` CI, and `docs/` design notes.
 
-The pure logic modules must not import `discord`.
-They take data and return data, so they are testable without mocking the gateway.
+The pure logic modules must not import `discord`; they take data and return data, so they need no gateway to test.
 Cogs only translate: Discord events into domain calls, domain results into Discord messages.
-Put the risky logic, such as date arithmetic, rotation, and filtering, in the pure modules, never in a cog.
+The risky logic, such as date arithmetic, rotation and filtering, belongs in the pure modules, never in a cog.
 
-No module's responsibility is "shared".
-Shared code lives at the layer it belongs to under its own name.
-Consider grouping only when shared modules exceed four or five, or a third domain appears.
+No module's responsibility is "shared": shared code lives at the layer it belongs to, under its own name.
+Consider grouping only when such modules exceed four or five, or a third domain appears.
 
 ## Run and test
 
@@ -62,48 +58,44 @@ Start with the narrowest relevant test, then run the full suite.
 ## Tests
 
 Judge a test by the RIPR model: it must reach the faulty location, infect the program state, propagate that infection to an observable output, and have an oracle that reveals it.
-A test failing any of the four detects nothing, however much it covers.
+A test failing any of the four detects nothing, however much it covers; coverage is a by-product, never the goal.
 Name the fault a test is meant to catch before writing it; if you cannot, delete it.
-Coverage is a by-product, never the goal.
 
 - Derive the oracle independently of the implementation.
-  Write expected values as literals, such as `datetime(2026, 10, 23, 12, 0, tzinfo=UTC)`.
-  Recomputing the expectation with the same expression the code uses makes infection impossible, so the test passes with the code's own bug.
+  Write expected values as literals, such as `datetime(2026, 10, 23, 12, 0, tzinfo=UTC)`; recomputing the expectation with the code's own expression makes infection impossible.
 - Assert on values, not on truthiness, types, or lengths.
   `assert result is not None` and `assert len(rows) > 0` hold for an incorrect state, so they reveal nothing.
 - Choose inputs where a wrong answer is possible: the year boundary for `schedule`, an empty, single-member, and all-inactive queue for `rotation`, and `weight == 0` and the exact threshold for CTFtime filtering.
 - Do not add a test that reaches the same code, infects the same state, and checks the same output as an existing one.
   Parameterizing over inputs that all take one path adds cases, not detection.
+- Do not test a parameter nobody passes; drop the parameter instead.
 - A test that needs a mock to run is testing the wrong layer.
   The pure modules need none, and store tests run the real migrations against an in-memory database.
 - Assert what ricebot does with discord.py and aiosqlite, never what they do themselves.
-- No snapshot or golden tests of message or embed text.
-  They fail on every wording change and get regenerated without being read.
+- No snapshot or golden tests of message or embed text: they fail on every wording change and get regenerated without being read.
 - Cogs have no unit tests; testing them means mocking the gateway.
   Verify interaction flows by hand on a test server and say so in the commit body.
 
 ## Repository tooling
 
 Run `uv sync`, then `uv run pre-commit install` once per clone; this installs the pre-commit, commit-msg, and pre-push hooks.
-Re-run it after a hook type is added, or an existing clone keeps the hooks it already has.
+Re-run it after a hook type is added; an existing clone keeps the hooks it has.
 `pre-commit` checks only tracked files, so stage new files before `uv run pre-commit run --all-files`.
 To run one hook manually: `uv run pre-commit run ruff-format --files <paths>`.
 
-Ruff is configured in `ruff.toml`, not `pyproject.toml`, and is deliberately not a dev dependency.
-Its version is pinned by the `ruff-pre-commit` `rev`, and a second source of truth would let `uv run ruff` and the hook disagree.
+Ruff is configured in `ruff.toml` and is deliberately not a dev dependency: the `ruff-pre-commit` `rev` pins its version, and a second source of truth would let `uv run ruff` and the hook disagree.
 
 The commit-msg hook needs `--no-project`: this project's version derives from git state, so plain `uv run` reinstalls the package on every commit.
 `scripts/check_commit_msg.py` is shared with the other personal repositories.
-Keep its validation logic in sync with them, but let formatting follow this repository's Ruff config and the example in its failure message name a scope that exists here.
+Keep its validation logic in sync with them; formatting and the scope in its failure message follow this repository.
 
-The pre-push hooks check the lockfile and the messages of the commits being pushed.
-Those two are there because their failures are the expensive ones: a stale lockfile breaks everyone's `uv sync --locked`, and a bad message that reaches a shared branch can only be fixed by rewriting published history.
+The pre-push hooks check the lockfile and the messages of the commits being pushed, because those two failures are the expensive ones: a stale lockfile breaks everyone's `uv sync --locked`, and a bad message that reaches a shared branch can only be fixed by rewriting published history.
 Formatting and build failures stay out of pre-push; a follow-up commit fixes them, and CI catches them anyway.
 
 Never force-add a gitignored path.
 
 CI runs the same pre-commit hooks, so a green local run means a green CI run.
-It also validates every commit message in history, which means a bad message stays red until the history is rewritten.
+It also validates every commit message in history, so a bad message stays red until the history is rewritten.
 
 ## Conventions
 
@@ -112,28 +104,25 @@ It also validates every commit message in history, which means a bad message sta
 - Boot-time identifiers and secrets come from the environment through `config.py`.
   Values the community adjusts live in the `settings` table so a command can change them without a redeploy.
 - The database is the source of truth; a guild event or an announcement is a projection of it.
-  Neither can hold whose turn a session counts as, which reminders were sent, or who declined, so neither can be authoritative for any of them.
+  Neither can hold whose turn a session counts as or which reminders were sent, so neither can be authoritative for any of it.
   An event edited in the client is therefore overwritten on the next sync, and an event or announcement deleted by hand is recreated.
   This does not contradict leaving state to Discord where Discord holds all of it, such as a reaction list or a channel overwrite.
 - Both domains record a scheduled side effect before performing it and delete the record if it fails, so the next loop retries.
   They keep separate tables; keep the two implementations consistent.
 - Wrap every `tasks.loop` body in `try`/`except` and attach a `@loop.error` handler.
-  An uncaught exception stops the loop permanently and does not restart it.
+  The guard covers the whole body, the store reads that drive it included: an uncaught exception stops the loop permanently and nothing restarts it.
 - Intents are `guilds`, `members` and `reactions`.
-  `members` is privileged, but below 100 guilds it is a Developer Portal toggle rather than an approval; the host rotation reads the role's members, and no unprivileged API returns them.
+  `members` is privileged, but below 100 guilds it is a Developer Portal toggle; the host rotation reads the role's members, and no unprivileged API returns them.
   Do not add `message_content`: nothing reads message text.
 
 ## Versioning
 
-The version derives from git tags through `uv-dynamic-versioning`; it is not written in `pyproject.toml`.
-On a tag the version is clean (`1.2.0`); past a tag it carries the commit (`1.2.0.post3+ab12c52`), so the version alone identifies the running build.
+The version derives from git tags through `uv-dynamic-versioning`, not from `pyproject.toml`.
+On a tag it is clean (`1.2.0`); past a tag it carries the commit (`1.2.0.post3+ab12c52`), so the version alone identifies the running build.
 
-Semantic versioning applies, with deployment as the consumer.
+Numbering follows [Semantic Versioning 2.0.0](https://semver.org/#summary), with deployment as the consumer: an incompatible change is one that needs hands on the host.
 
-- `patch`: bug fixes.
-  `git pull && uv sync && systemctl --user restart ricebot`.
-- `minor`: new commands or features.
-  Same deployment, possibly new `settings` defaults.
+- `patch` and `minor`: `git pull && uv sync && systemctl --user restart ricebot`, with new `settings` defaults where a feature adds them.
 - `major`: the upgrade needs manual work, such as a migration that cannot run automatically, a new `.env` field, or a new Discord intent or permission granted in the Developer Portal.
 
 ## Commits
@@ -150,21 +139,20 @@ Semantic versioning applies, with deployment as the consumer.
 
 ### Messages
 
-- Use `type(scope): subject`.
-  The scope is the module or domain name (e.g. `ctf`, `bookclub`, `store`); omit it for changes that span modules or the whole repository.
+Messages follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/#summary) and the [seven rules](https://cbea.ms/git-commit/#seven-rules), narrowed here and enforced by the commit-msg hook.
+
 - Allowed types: `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `ci`, `build`, `perf`, `style`.
+- The scope is the module or domain name (e.g. `ctf`, `bookclub`, `store`); omit it for changes that span modules or the whole repository.
 - Subject: lowercase imperative phrase, no trailing punctuation.
-  The header must not exceed 72 characters.
-- Separate an optional body from the header with a blank line.
-- Use the body for context, what changed, and why.
-  Do not narrate the diff file by file.
+  The type prefix is why the header is neither capitalized nor held to 50 characters; the limit here is 72.
+- Use the body for context, what changed, and why, without narrating the diff file by file.
   Wrap body text at 72 characters.
 - Standalone URLs and machine-readable footers may exceed 72 characters.
 - Do not add AI co-author signatures or session trailers.
 
 ## Writing conventions
 
-These rules apply to names, code comments, and documentation.
+These rules apply to names, code comments, documentation, and the shape of the code.
 
 - Be concise and direct.
   Say it once; omit what the context already makes clear.
@@ -178,15 +166,21 @@ These rules apply to names, code comments, and documentation.
 
 ### Naming
 
-- Name things after the domain concept.
-  Modules are one lowercase word (`clock`, `rotation`, `schedule`, `settings`, `ctftime`); use `snake_case` with two words only when one is ambiguous.
+- Name things after the domain concept, and give one concept one name across every layer.
+- Read a name cold and ask what a developer takes it to mean first.
+  A wrong first impression is renamed; a thin one is left to the docstring.
 - Omit context the location already gives: `store/ctf.py`, not `store/ctf_store.py`; `ctf/ctftime.py`, not `ctf/ctftime_client.py`.
+- Modules are one lowercase word (`clock`, `rotation`, `schedule`, `settings`, `ctftime`); use `snake_case` with two words only when one is ambiguous.
 - Classes use `PascalCase`; functions, variables, and modules use `snake_case`; module-level constants use `UPPER_SNAKE_CASE`.
 - Prefix a helper with `_` when it is private to its module.
 
 ### Comments
 
 - Explain why, invariants, and non-obvious constraints; do not restate what the code says.
+  What a name says, a comment need not repeat; what a name cannot say, the docstring carries.
+- State the fact and stop.
+  Do not contrast what the code does with what it does not ("X rather than Y", "not A but B"), and do not add a clause to patch the clause before it.
+- A stale comment is worse than none: it gets used as a premise.
 - Keep a comment to one line, two when the constraint needs it.
   The reasoning that led there belongs in the commit body, not beside the code.
 - Record the Discord or CTFtime behavior a workaround exists for, so the workaround is not removed as dead weight.
@@ -194,10 +188,16 @@ These rules apply to names, code comments, and documentation.
   Omit it when the name and signature already say everything.
 - Use `#` comments inside function bodies.
 
+### Shape
+
+- Break a long run of statements into paragraphs, one per stage, separated by a blank line.
+  A blank line says a stage ended and cannot go stale, so prefer it to a comment that says the same.
+- Head a paragraph with one line of comment only where its purpose is not evident from the calls it makes.
+- A function whose every paragraph needs a heading is doing too much; split the function instead.
+
 ### Documentation
 
-- Keep information dense.
-  Merge overlapping concepts; do not end with a summary that restates the document.
+- Keep information dense: merge overlapping concepts, and do not end with a summary that restates the document.
 - Use independent, unnumbered H2 sections unless the material has an intrinsic sequence.
 - Verify the relevant section of a source before citing it, and link it directly.
 - Keep source titles and quotations in their original language; explanatory prose may be Chinese.
