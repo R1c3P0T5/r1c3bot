@@ -1,7 +1,7 @@
 """The /bookclub commands."""
 
 import logging
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 
 import aiosqlite
 import discord
@@ -53,14 +53,6 @@ _WEEKDAYS = "一二三四五六日"
 
 def _weekday(day: date) -> str:
     return f"週{_WEEKDAYS[day.weekday()]}"
-
-
-def _parse(day: str, at: str) -> datetime | None:
-    """The start the two strings name, or None if either is not a time."""
-    try:
-        return schedule.starts_at(date.fromisoformat(day), time.fromisoformat(at))
-    except ValueError:
-        return None
 
 
 def _mention(user_id: int | None, fallback: str) -> str:
@@ -131,7 +123,7 @@ class ScheduleModal(discord.ui.Modal, title="排一場讀書會"):
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         day, at = self.day.component.value, self.at.component.value
-        starts_at = _parse(day, at)
+        starts_at = schedule.parse(day, at)
         if starts_at is None:
             await interaction.response.send_message(
                 f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
@@ -408,7 +400,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         host: discord.Member,
         topic: str,
     ) -> None:
-        starts_at = _parse(day, at)
+        starts_at = schedule.parse(day, at)
         if starts_at is None:
             await interaction.response.send_message(
                 f"{BAD_TIME}收到 `{day}` 與 `{at}`。", ephemeral=True
@@ -470,7 +462,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         today = clock.taipei(clock.now()).date()
         return [
             app_commands.Choice(name=f"{day:%m/%d}（{_weekday(day)}）", value=day.isoformat())
-            for day in (today + timedelta(days=n) for n in range(DAY_SPAN))
+            for day in schedule.upcoming_days(today, DAY_SPAN)
             if current in day.isoformat()
         ]
 

@@ -40,6 +40,19 @@ def starts_at(day: date, at: time = START) -> datetime:
     return datetime.combine(day, at, tzinfo=TAIPEI).astimezone(UTC)
 
 
+def parse(day: str, at: str) -> datetime | None:
+    """The start the two strings name, or None if either is not a date or a time."""
+    try:
+        return starts_at(date.fromisoformat(day), time.fromisoformat(at))
+    except ValueError:
+        return None
+
+
+def upcoming_days(today: date, span: int) -> list[date]:
+    """Today and the days after it, as many as span asks for."""
+    return [today + timedelta(days=n) for n in range(span)]
+
+
 def cutoff(now: datetime) -> datetime:
     """The start time dividing finished sessions from current ones.
 
