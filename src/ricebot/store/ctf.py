@@ -31,6 +31,7 @@ class Contest:
     channel_id: int | None = None
     guild_event_id: int | None = None
     archived_at: datetime | None = None
+    archive_warned_at: datetime | None = None
 
 
 def _contest(row: aiosqlite.Row) -> Contest:
@@ -53,6 +54,7 @@ def _contest(row: aiosqlite.Row) -> Contest:
         channel_id=row["channel_id"],
         guild_event_id=row["event_id"],
         archived_at=db.parse_moment(row["archived_at"]),
+        archive_warned_at=db.parse_moment(row["archive_warned_at"]),
     )
 
 
@@ -159,6 +161,15 @@ async def set_guild_event(
     """Record the guild event, or forget it with None so a later pass recreates it."""
     await db.execute(
         "UPDATE ctf_events SET event_id = ? WHERE ctftime_id = ?", (guild_event_id, ctftime_id)
+    )
+    await db.commit()
+
+
+async def warn_archive(db: aiosqlite.Connection, ctftime_id: int, at: datetime) -> None:
+    """Note that the failure to archive has been said once."""
+    await db.execute(
+        "UPDATE ctf_events SET archive_warned_at = ? WHERE ctftime_id = ?",
+        (at.isoformat(), ctftime_id),
     )
     await db.commit()
 

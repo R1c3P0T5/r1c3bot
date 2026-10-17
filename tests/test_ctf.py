@@ -24,6 +24,16 @@ def contest(ctftime_id: int = 3364, **changed: object) -> Contest:
     return Contest(**{**fields, **changed})  # type: ignore[arg-type]
 
 
+async def test_the_archive_warning_is_remembered(store) -> None:
+    await ctf.ensure(store, contest())
+
+    await ctf.warn_archive(store, 3364, datetime(2026, 10, 27, 12, 0, tzinfo=UTC))
+
+    saved = await ctf.contest(store, 3364)
+    assert saved is not None
+    assert saved.archive_warned_at == datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
+
+
 async def test_a_contest_comes_back_with_its_times(store) -> None:
     saved = await ctf.ensure(store, contest())
 
