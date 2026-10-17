@@ -31,6 +31,7 @@ async def on_error(interaction: discord.Interaction, error: app_commands.AppComm
     if isinstance(error, app_commands.CheckFailure):
         await interaction.response.send_message(DENIED, ephemeral=True)
         return
+
     name = interaction.command.name if interaction.command else "unknown"
     log.error("/%s failed", name, exc_info=error)
     try:
