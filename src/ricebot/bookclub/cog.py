@@ -1,6 +1,7 @@
 """The /bookclub commands."""
 
 import logging
+from dataclasses import replace
 from datetime import date, datetime
 
 import aiosqlite
@@ -661,14 +662,13 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
             return
 
         await interaction.response.defer(ephemeral=True)
-        was = session.starts_at
         await store.reschedule(self.db, session.id, starts_at)
-        session = await store.session(self.db, starts_at) or session
-        await self._sync(interaction.guild, session)
+        moved = replace(session, starts_at=starts_at)
+        await self._sync(interaction.guild, moved)
         await self._notify(
             interaction,
-            session,
-            f"{clock.stamp(was)} 這場改到 {clock.stamp(starts_at)}。\n"
+            moved,
+            f"{clock.stamp(session.starts_at)} 這場改到 {clock.stamp(starts_at)}。\n"
             "-# 報名與輪替都留著，提醒會按新時間重新發。",
         )
 
