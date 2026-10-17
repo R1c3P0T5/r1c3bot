@@ -43,10 +43,6 @@ class Contest:
     participants: int
     description: str
 
-    @property
-    def duration(self) -> timedelta:
-        return self.finishes_at - self.starts_at
-
 
 def contest(raw: Mapping[str, Any]) -> Contest:
     """One contest from CTFtime's JSON."""
