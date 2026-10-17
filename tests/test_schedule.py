@@ -15,6 +15,32 @@ def test_the_local_time_can_be_given() -> None:
     assert schedule.starts_at(FRIDAY, time(19, 30)) == datetime(2026, 10, 16, 11, 30, tzinfo=UTC)
 
 
+def test_a_typed_day_and_time_become_the_start() -> None:
+    assert schedule.parse("2026-10-16", "19:30") == datetime(2026, 10, 16, 11, 30, tzinfo=UTC)
+
+
+def test_a_start_just_before_the_new_year_stays_in_the_old_one() -> None:
+    # 00:30 Taipei on 1 January is 16:30 UTC on 31 December.
+    assert schedule.parse("2026-01-01", "00:30") == datetime(2025, 12, 31, 16, 30, tzinfo=UTC)
+
+
+def test_a_day_that_is_not_a_date_is_refused() -> None:
+    assert schedule.parse("16/10/2026", "19:30") is None
+
+
+def test_a_time_that_is_not_a_time_is_refused() -> None:
+    assert schedule.parse("2026-10-16", "7pm") is None
+
+
+def test_the_picker_runs_from_today_across_the_year_end() -> None:
+    assert schedule.upcoming_days(date(2026, 12, 30), 4) == [
+        date(2026, 12, 30),
+        date(2026, 12, 31),
+        date(2027, 1, 1),
+        date(2027, 1, 2),
+    ]
+
+
 def test_a_session_in_progress_is_still_current() -> None:
     # 21:00 Taipei, an hour into the session that started at 20:00.
     assert schedule.cutoff(datetime(2026, 10, 16, 13, 0, tzinfo=UTC)) == datetime(
