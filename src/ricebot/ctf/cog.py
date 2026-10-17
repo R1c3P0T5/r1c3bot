@@ -18,8 +18,8 @@ log = logging.getLogger(__name__)
 SILENT = discord.AllowedMentions.none()
 # The sign-up list: pressing it is what opens the channel.
 RSVP = "🚩"
-# CTFtime's restrictions. Every announced contest is Open, so printing it is
-# noise; Casual says how serious it is, not who may enter.
+# CTFtime's restriction values. Open is not printed, and Casual marks a
+# relaxed contest rather than a closed one.
 OPEN = "Open"
 CASUAL = "Casual"
 RESTRICTION_LABELS = {"Academic": "限學生", "High-school": "限高中生", "Invited": "邀請制"}
@@ -29,7 +29,7 @@ EVENT_LIMIT = 1000
 ARCHIVE_AFTER = timedelta(days=2)
 
 
-def _length(span: timedelta) -> str:
+def _duration_text(span: timedelta) -> str:
     days, hours = divmod(round(span.total_seconds() / 3600), 24)
     if days and hours:
         return f"{days} 天 {hours} 小時"
@@ -43,7 +43,7 @@ def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
     casual = "休閒" if contest.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, contest.format, casual) if part)
     lines = [
-        f"{kind} (weight {contest.weight:.2f})　{_length(contest.finishes_at - contest.starts_at)}"
+        f"{kind} (weight {contest.weight:.2f})　{_duration_text(contest.finishes_at - contest.starts_at)}"
     ]
     if contest.restrictions not in {OPEN, CASUAL, ""}:
         # Its own line, because being unable to enter outranks everything else.
