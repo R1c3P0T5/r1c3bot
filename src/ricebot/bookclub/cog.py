@@ -433,8 +433,6 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await store.set_topic(self.db, session.id, topic)
         # Volunteering spends the turn just as being assigned does.
         await store.assign_host(self.db, session.id, host.id)
-        # Re-read, so the event is named after the topic just written.
-        session = await store.session(self.db, starts_at) or session
         # Synced first: a reopened session carries projections from before the
         # cancellation, and this forgets the ones that are gone so the two
         # calls below can replace them.
@@ -445,7 +443,7 @@ class BookclubCog(commands.GroupCog, name="bookclub", description="讀書會"):
         await interaction.followup.send(
             f"{lead} {clock.stamp(starts_at)}\n"
             f"主持人：{host.mention}\n"
-            f"主題：{session.topic or '未設定'}\n"
+            f"主題：{topic}\n"
             f"活動：{event_status}\n"
             f"公告：{announce_status}",
             ephemeral=True,
