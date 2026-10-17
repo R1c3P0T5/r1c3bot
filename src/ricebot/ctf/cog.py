@@ -73,9 +73,10 @@ def _facts(contest: store.Contest, emphasis: str = "") -> list[str]:
     where = f"實體（{contest.location}）" if contest.onsite else "線上"
     casual = "休閒" if contest.restrictions == CASUAL else ""
     kind = " ".join(part for part in (where, contest.format, casual) if part)
-    lines = [
-        f"{kind} (weight {contest.weight:.2f}) {_duration_text(contest.finishes_at - contest.starts_at)}"
-    ]
+    # CTFtime counts the teams registered, so a contest announced early has 0.
+    teams = f"{contest.participants} 隊" if contest.participants else ""
+    span = _duration_text(contest.finishes_at - contest.starts_at)
+    lines = [" ".join(p for p in (kind, f"(weight {contest.weight:.2f})", teams, span) if p)]
     if contest.restrictions not in {OPEN, CASUAL, ""}:
         # Its own line, because being unable to enter outranks everything else.
         limit = RESTRICTION_LABELS.get(contest.restrictions, contest.restrictions)
