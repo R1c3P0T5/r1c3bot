@@ -102,6 +102,13 @@ class CtfCog(commands.Cog):
     @tasks.loop(hours=6)
     async def _tick(self) -> None:
         """Pick up the contests CTFtime lists, then put away the ones that are over."""
+        try:
+            await self._pass()
+        except Exception:
+            # A failure here would stop the loop for good.
+            log.exception("the ctf pass failed")
+
+    async def _pass(self) -> None:
         guild = self.bot.get_guild(self.guild_id)
         if guild is None:
             return
