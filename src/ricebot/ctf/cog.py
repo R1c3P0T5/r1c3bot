@@ -117,12 +117,12 @@ def _announce_text(contest: store.Contest) -> str:
 
 
 def _channel_text(contest: store.Contest) -> str:
-    """The channel's first message: the summary, plus what CTFtime says about it."""
-    return (
-        f"{_summary(contest)}\n\n{contest.description}"
-        if contest.description
-        else _summary(contest)
-    )
+    """The channel's first message: a hello, the summary, and CTFtime's blurb."""
+    hello = f"{contest.title} 用的頻道開了！後續的討論和 write-up 都可以丟這裡"
+    parts = [hello, _summary(contest)]
+    if contest.description:
+        parts.append(contest.description)
+    return "\n\n".join(parts)
 
 
 def _event_description(contest: store.Contest) -> str:
@@ -503,7 +503,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if channel is None:
             return
         await channel.send(
-            f"{member.mention} 的 🚩 收到了，但我沒能讓你進去。\n-# {reason}",
+            f"{member.mention} 我看到你的 🚩 了，可是頻道開不起來 🥲\n-# {reason}",
             allowed_mentions=PING_USERS,
         )
 
@@ -517,7 +517,7 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
         if channel is None:
             return
         await channel.send(
-            f"**{contest.title}** 的討論頻道該封存了，但搬不過去。\n-# {reason}",
+            f"**{contest.title}** 的討論頻道想收起來，但我搬不動他 QQ\n-# {reason}",
             allowed_mentions=SILENT,
         )
         # Recorded after sending: a repeated warning beats a silenced one.
@@ -600,7 +600,8 @@ class CtfCog(commands.GroupCog, name="ctf", description="CTF 揪團"):
             return
         if not known:
             await channel.send(
-                f"{member.mention} 來了。", allowed_mentions=discord.AllowedMentions(users=True)
+                f"{member.mention} 也來一起打了！",
+                allowed_mentions=discord.AllowedMentions(users=True),
             )
 
     @commands.Cog.listener()
